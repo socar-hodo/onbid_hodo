@@ -52,72 +52,210 @@ try:
     # 로그인
     print("\n=== 로그인 ===")
     page.goto('https://www.onbid.co.kr', timeout=60000)
-    time.sleep(2)
+    page.wait_for_load_state('domcontentloaded')
+    time.sleep(3)
     
     if onbid_id and onbid_pw:
-        # 로그인 버튼 클릭
-        login_selectors = ['a:has-text("로그인")', 'button:has-text("로그인")']
-        for selector in login_selectors:
-            if page.locator(selector).count() > 0:
-                page.click(selector)
-                break
+        try:
+            # 로그인 버튼 클릭
+            login_selectors = [
+                'a:has-text("로그인")',
+                'button:has-text("로그인")',
+                'a[href*="login"]',
+                '.login'
+            ]
+            
+            login_clicked = False
+            for selector in login_selectors:
+                try:
+                    if page.locator(selector).count() > 0:
+                        page.click(selector, timeout=5000)
+                        print(f"✓ 로그인 버튼 클릭: {selector}")
+                        login_clicked = True
+                        break
+                except:
+                    continue
+            
+            if not login_clicked:
+                print("⚠️ 로그인 버튼을 찾을 수 없습니다")
+            
+            time.sleep(3)
+            page.wait_for_load_state('domcontentloaded')
+            
+            # 아이디 입력 (더 유연하게)
+            id_filled = False
+            id_selectors = [
+                'input[name="id"]',
+                'input#id',
+                'input#userId',
+                'input[name="userId"]',
+                'input[type="text"]'
+            ]
+            
+            for selector in id_selectors:
+                try:
+                    if page.locator(selector).count() > 0:
+                        page.fill(selector, onbid_id, timeout=5000)
+                        print(f"✓ 아이디 입력: {selector}")
+                        id_filled = True
+                        break
+                except Exception as e:
+                    print(f"  {selector} 실패: {e}")
+                    continue
+            
+            # 비밀번호 입력
+            pw_filled = False
+            pw_selectors = [
+                'input[type="password"]',
+                'input[name="pw"]',
+                'input#pw',
+                'input[name="password"]'
+            ]
+            
+            for selector in pw_selectors:
+                try:
+                    if page.locator(selector).count() > 0:
+                        page.fill(selector, onbid_pw, timeout=5000)
+                        print(f"✓ 비밀번호 입력: {selector}")
+                        pw_filled = True
+                        break
+                except Exception as e:
+                    print(f"  {selector} 실패: {e}")
+                    continue
+            
+            if not id_filled or not pw_filled:
+                print("⚠️ 로그인 정보 입력 실패")
+                print("로그인 없이 계속 진행...")
+            else:
+                time.sleep(1)
+                
+                # 로그인 제출
+                submit_selectors = [
+                    'button[type="submit"]',
+                    'button:has-text("로그인")',
+                    'input[type="submit"]',
+                    'a:has-text("로그인")'
+                ]
+                
+                for selector in submit_selectors:
+                    try:
+                        if page.locator(selector).count() > 0:
+                            page.click(selector, timeout=5000)
+                            print(f"✓ 로그인 제출: {selector}")
+                            break
+                    except:
+                        continue
+                
+                time.sleep(5)
+                page.wait_for_load_state('domcontentloaded')
+                print("✓ 로그인 완료")
         
-        time.sleep(3)
-        
-        # 아이디/비밀번호 입력
-        page.fill('input[name="id"], input#id', onbid_id)
-        page.fill('input[type="password"]', onbid_pw)
-        page.click('button[type="submit"]')
-        
-        time.sleep(5)
-        print("✓ 로그인 완료")
+        except Exception as e:
+            print(f"⚠️ 로그인 중 에러 (계속 진행): {e}")
+    else:
+        print("⚠️ ONBID_ID 또는 ONBID_PW 미설정")
     
     # 부동산 > 공고 페이지로 이동
     print("\n=== 공고 페이지 이동 ===")
-    real_estate_selectors = ['a:has-text("부동산")', '[href*="budongsan"]']
-    for selector in real_estate_selectors:
-        try:
-            if page.locator(selector).count() > 0:
-                page.click(selector, timeout=5000)
-                time.sleep(2)
-                break
-        except:
-            continue
     
-    gonggo_selectors = ['a:has-text("공고")', '[href*="gonggo"]']
-    for selector in gonggo_selectors:
-        try:
-            if page.locator(selector).count() > 0:
-                page.click(selector, timeout=5000)
-                time.sleep(3)
-                break
-        except:
-            continue
+    try:
+        # 부동산 메뉴
+        real_estate_selectors = [
+            'a:has-text("부동산")',
+            'li:has-text("부동산")',
+            '[href*="budongsan"]'
+        ]
+        
+        for selector in real_estate_selectors:
+            try:
+                if page.locator(selector).count() > 0:
+                    page.click(selector, timeout=5000)
+                    print(f"✓ 부동산 클릭: {selector}")
+                    time.sleep(2)
+                    break
+            except:
+                continue
+        
+        # 공고 메뉴
+        gonggo_selectors = [
+            'a:has-text("공고")',
+            'li:has-text("공고")',
+            '[href*="gonggo"]'
+        ]
+        
+        for selector in gonggo_selectors:
+            try:
+                if page.locator(selector).count() > 0:
+                    page.click(selector, timeout=5000)
+                    print(f"✓ 공고 클릭: {selector}")
+                    time.sleep(3)
+                    break
+            except:
+                continue
+        
+        print(f"현재 URL: {page.url}")
+        
+    except Exception as e:
+        print(f"⚠️ 메뉴 이동 실패 (계속 진행): {e}")
     
     # 검색창에 주차장 입력
     print("\n=== 주차장 검색 ===")
-    search_selectors = ['input[name="searchWord"]', 'input[id="searchWord"]', 'input[placeholder*="검색"]']
-    for selector in search_selectors:
-        try:
-            if page.locator(selector).count() > 0:
-                page.fill(selector, '주차장')
-                print("✓ 검색어 입력")
-                break
-        except:
-            continue
     
-    # 검색 실행
-    search_btn_selectors = ['button:has-text("검색")', 'a:has-text("검색")']
-    for selector in search_btn_selectors:
-        try:
-            if page.locator(selector).count() > 0:
-                page.click(selector)
-                break
-        except:
-            continue
-    
-    time.sleep(5)
-    print(f"✓ 검색 완료")
+    try:
+        search_selectors = [
+            'input[name="searchWord"]',
+            'input[id="searchWord"]',
+            'input[placeholder*="검색"]',
+            'input[type="text"]'
+        ]
+        
+        search_found = False
+        for selector in search_selectors:
+            try:
+                if page.locator(selector).count() > 0:
+                    page.fill(selector, '주차장', timeout=5000)
+                    print(f"✓ 검색어 입력: {selector}")
+                    search_found = True
+                    break
+            except:
+                continue
+        
+        if not search_found:
+            print("⚠️ 검색창을 찾을 수 없습니다")
+            print("페이지 스크린샷 저장...")
+            page.screenshot(path='no_search_box.png', full_page=True)
+        
+        time.sleep(1)
+        
+        # 검색 실행
+        search_btn_selectors = [
+            'button:has-text("검색")',
+            'a:has-text("검색")',
+            'button.btn-search',
+            'input[type="submit"]'
+        ]
+        
+        btn_clicked = False
+        for selector in search_btn_selectors:
+            try:
+                if page.locator(selector).count() > 0:
+                    page.click(selector, timeout=5000)
+                    print(f"✓ 검색 버튼 클릭: {selector}")
+                    btn_clicked = True
+                    break
+            except:
+                continue
+        
+        if not btn_clicked:
+            print("검색 버튼 못 찾아서 Enter")
+            page.keyboard.press('Enter')
+        
+        time.sleep(5)
+        page.wait_for_load_state('domcontentloaded')
+        print(f"✓ 검색 완료")
+        
+    except Exception as e:
+        print(f"⚠️ 검색 중 에러: {e}")
     
     # 데이터 수집
     all_parking_data = []
