@@ -25,7 +25,7 @@ try:
     page.wait_for_load_state("networkidle")
     time.sleep(2)
 
-    # 1. 로그인 (있으면)
+    # 1. 로그인 (선택)
     if ONBID_ID and ONBID_PW:
         for s in ['a:has-text("로그인")', 'button:has-text("로그인")']:
             if page.locator(s).count():
@@ -51,20 +51,20 @@ try:
         page.wait_for_load_state("networkidle")
         time.sleep(3)
 
-    # 2. 부동산 → 공고
-    for s in ['a:has-text("부동산")']:
-        if page.locator(s).count():
-            page.click(s)
-            break
-    time.sleep(2)
+    # 2. 부동산 메뉴 클릭 (이것만 클릭)
+    if page.locator('a:has-text("부동산")').count():
+        page.click('a:has-text("부동산")')
+        time.sleep(2)
 
-    for s in ['a:has-text("공고")']:
-        if page.locator(s).count():
-            page.click(s)
-            break
+    # 3. 공고 페이지로 직접 이동 (⭐ 핵심)
+    page.goto(
+        "https://www.onbid.co.kr/op/ppa/plnmmn/publicAnnounceRlstList.do",
+        timeout=60000
+    )
+    page.wait_for_load_state("networkidle")
     time.sleep(3)
 
-    # 3. 검색어 입력
+    # 4. 검색어 입력
     for s in [
         'input[name="searchWord"]',
         'input[placeholder*="검색"]'
@@ -73,7 +73,7 @@ try:
             page.fill(s, "주차장")
             break
 
-    # 4. 검색 실행
+    # 5. 검색 실행
     for s in ['button:has-text("검색")', 'input[type="submit"]']:
         if page.locator(s).count():
             page.click(s)
@@ -82,7 +82,7 @@ try:
     page.wait_for_load_state("networkidle")
     time.sleep(3)
 
-    # 5. 결과 테이블 파싱
+    # 6. 테이블 결과 파싱
     rows = page.locator("tr").all()
     parking_data = []
 
@@ -105,7 +105,7 @@ try:
             "상태": texts[-1]
         })
 
-    # 6. Slack 전송
+    # 7. Slack 전송
     if SLACK_WEBHOOK_URL:
         requests.post(SLACK_WEBHOOK_URL, json={
             "blocks": [
@@ -156,4 +156,5 @@ finally:
     browser.close()
     playwright.stop()
     print("완료")
+
 
