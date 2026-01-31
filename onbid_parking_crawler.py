@@ -54,8 +54,9 @@ browser = playwright.chromium.launch(headless=True, args=['--no-sandbox'])
 page = browser.new_page()
 
 try:
-    # 이전 크롤링 기록 불러오기
-    previous_gonggo = load_previous_gonggo()
+    # 이전 크롤링 기록 불러오기 (검증용이므로 사용 안함)
+    # previous_gonggo = load_previous_gonggo()
+    previous_gonggo = set()  # 빈 set으로 시작 (중복 체크 안함)
     
     # 로그인
     print("\n=== 로그인 ===")
@@ -301,10 +302,9 @@ try:
                 if idx < 3 and len(texts) >= 7:
                     print(f"\n  [디버그] 행 {idx}: {texts[:7]}")
                 
-                # 주차장이면 모두 수집 (NEW 필터 제거 - 검증용)
+                # 주차장이면 모두 수집 (필터 없음 - 검증용)
                 if '주차' in row_text:
                     # 온비드 실제 테이블 구조에 맞게 파싱
-                    # 컬럼: 물건정보, 회차/사건, 입찰일시, 감정가/최저가, 상태, ...
                     
                     # 물건정보 (첫번째 컬럼)
                     mulgun_info = texts[0] if len(texts) > 0 else ''
@@ -343,18 +343,12 @@ try:
                         '추가정보2': extra2
                     }
                     
-                    # 중복 체크 (검증용이므로 중복도 표시)
-                    is_duplicate = gonggo_no in previous_gonggo
-                    parking_info['중복여부'] = '중복' if is_duplicate else '신규'
-                    
                     if gonggo_no:
                         all_parking_data.append(parking_info)
                         current_gonggo.add(gonggo_no)
                         page_new_count += 1
                         
-                        status_marker = "★★★" if 'NEW' in status_info else ""
-                        duplicate_marker = "[중복]" if is_duplicate else "[신규]"
-                        print(f"  {status_marker} {duplicate_marker} {gonggo_no}")
+                        print(f"  ✓ 주차장 발견: {gonggo_no}")
                         print(f"     상태: {status_info}")
                         print(f"     {mulgun_name[:50]}")
                 
@@ -409,7 +403,7 @@ try:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "🅿️ 온비드 주차장 경매 (전체 - 검증용)",
+                    "text": "🅿️ 온비드 주차장 검색 결과 (전체)",
                     "emoji": True
                 }
             },
@@ -425,7 +419,7 @@ try:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"⚠️ NEW 필터 제거됨 (검증용) | 💾 이전 크롤링: {len(previous_gonggo)}개"
+                        "text": "⚠️ 검증 모드: 모든 주차장 표시 (NEW 필터 및 중복 체크 비활성화)"
                     }
                 ]
             },
@@ -459,7 +453,7 @@ try:
                     "type": "header",
                     "text": {
                         "type": "plain_text",
-                        "text": f"🅿️ {idx}. 주차장 {'🆕' if parking['중복여부'] == '신규' else '🔄'}",
+                        "text": f"🅿️ {idx}. 주차장",
                         "emoji": True
                     }
                 },
@@ -478,16 +472,10 @@ try:
                 },
                 {
                     "type": "section",
-                    "fields": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"*🏷️ 상태*\n{parking['상태']}"
-                        },
-                        {
-                            "type": "mrkdwn",
-                            "text": f"*🔄 중복여부*\n{parking['중복여부']}"
-                        }
-                    ]
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*🏷️ 상태*\n{parking['상태']}"
+                    }
                 },
                 {
                     "type": "section",
@@ -584,9 +572,10 @@ try:
         requests.post(slack_webhook_url, json={"blocks": no_new_blocks})
         print("✓ 결과 없음 알림 전송")
     
-    # 현재 공고번호 저장 (이전 + 현재)
-    all_gonggo = previous_gonggo.union(current_gonggo)
-    save_current_gonggo(all_gonggo)
+    # 현재 공고번호 저장 안함 (검증용이므로)
+    # all_gonggo = previous_gonggo.union(current_gonggo)
+    # save_current_gonggo(all_gonggo)
+    print("\n⚠️ 검증 모드: 크롤링 기록 저장 안함")
 
 except Exception as e:
     print(f"\n✗ 오류: {e}")
