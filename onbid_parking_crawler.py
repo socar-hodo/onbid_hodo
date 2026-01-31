@@ -1,6 +1,5 @@
 import os
 import time
-import json
 import requests
 from datetime import datetime
 from playwright.sync_api import sync_playwright
@@ -11,26 +10,14 @@ SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
 ONBID_ID = os.environ.get("ONBID_ID", "")
 ONBID_PW = os.environ.get("ONBID_PW", "")
 
-SEEN_FILE = "seen_ids.json"
-
-# -------------------------------------------------
-# Seen IDs (신규 공고 필터)
-# -------------------------------------------------
-def load_seen_ids():
-    if not os.path.exists(SEEN_FILE):
-        return set()
-    with open(SEEN_FILE, "r", encoding="utf-8") as f:
-        return set(json.load(f))
-
-def save_seen_ids(seen_ids):
-    with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(sorted(list(seen_ids)), f, ensure_ascii=False, indent=2)
+TEST_LIMIT = 5   # 🔍 검증용: 슬랙으로 보낼 공고 수 제한
 
 # -------------------------------------------------
 # Slack
 # -------------------------------------------------
 def send_slack(blocks):
     if not SLACK_WEBHOOK_URL:
+        print("[DEBUG] SLACK_WEBHOOK_URL 없음")
         return
     requests.post(SLACK_WEBHOOK_URL, json={"blocks": blocks})
 
@@ -56,7 +43,7 @@ def build_slack_blocks(data, idx):
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"🔗 <{data.get('url')}>"
+                "text": f"🔗 <{data.get('url','')}>"
             }
         },
         {"type": "divider"}
@@ -118,12 +105,16 @@ def login(page):
 # Crawling
 # -------------------------------------------------
 def go_to_list(page):
-    page.goto(f"{BASE_URL}/op/opi/opip/gonggoList.do?searchWord=주차장")
+    url = f"{BASE_URL}/op/opi/opip/gonggoList.do?searchWord=주차장"
+    print(f"[DEBUG] 목록 페이지 이동: {url}")
+    page.goto(url)
     page.wait_for_load_state("networkidle")
 
 def collect_links(page):
     results = []
     rows = page.locator("table tbody tr").all()
+
+    print(f"[DEBUG] 목록 row 수: {len(rows)}")
 
     for row in rows:
         if "주차장" not in row.inner_text():
@@ -139,61 +130,47 @@ def collect_links(page):
                 "url": BASE_URL + href
             })
 
-    print(f"✓ 목록 {len(results)}건")
+    print(f"[DEBUG] 주차장 공고 수집 결과: {len(results)}")
     return results
 
 def parse_detail(page):
     data = {}
     rows = page.locator("div.info-row").all()
 
+    print(f"[DEBUG] 상세 info-row 수: {len(rows)}")
+
     for row in rows:
         try:
-            k = row.locator(".info-tit").inner_text().strip()
-            v = row.locator(".info-txt").inner_text().strip()
-            data[k] = v
+            key = row.locator(".info-tit").inner_text().strip()
+            val = row.locator(".info-txt").inner_text().strip()
+            data[key] = val
         except:
             continue
 
     return data
 
 # -------------------------------------------------
-# Main
+# Main (검증 모드)
 # -------------------------------------------------
 def main():
-    seen_ids = load_seen_ids()
-    new_results = []
-
     playwright = sync_playwright().start()
     browser = playwright.chromium.launch(headless=True)
     page = browser.new_page()
 
     try:
+        print("=" * 70)
+        print("온비드 주차장 크롤링 검증 모드 시작")
+        print("=" * 70)
+
         login(page)
         go_to_list(page)
 
         items = collect_links(page)
 
-        for item in items:
-            page.goto(item["url"])
-            page.wait_for_load_state("networkidle")
-
-            detail = parse_detail(page)
-            gonggo_no = detail.get("공고번호")
-
-            if not gonggo_no or gonggo_no in seen_ids:
-                continue
-
-            detail["공고명"] = item["공고명"]
-            detail["url"] = item["url"]
-
-            new_results.append(detail)
-            seen_ids.add(gonggo_no)
-            time.sleep(1)
-
-        if not new_results:
+        if not items:
             send_slack([{
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": "🅿️ 신규 주차장 공고 없음"}
+                "text": {"type": "mrkdwn", "text": "❌ 주차장 공고 목록을 찾지 못했습니다"}
             }])
             return
 
@@ -202,7 +179,7 @@ def main():
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "🅿️ 신규 온비드 주차장 공고",
+                    "text": "🧪 온비드 주차장 공고 크롤링 검증",
                     "emoji": True
                 }
             },
@@ -210,18 +187,33 @@ def main():
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n총 *{len(new_results)}건*"
+                    "text": f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+                            f"총 *{len(items)}건* 중 상위 *{TEST_LIMIT}건* 전송"
                 }
             },
             {"type": "divider"}
         ])
 
-        for i, data in enumerate(new_results, 1):
-            send_slack(build_slack_blocks(data, i))
+        for i, item in enumerate(items[:TEST_LIMIT], 1):
+            print(f"\n[DEBUG] 상세 페이지 진입 {i}")
+            print(f"        URL: {item['url']}")
+
+            page.goto(item["url"])
+            page.wait_for_load_state("networkidle")
+
+            detail = parse_detail(page)
+
+            print("[DEBUG] 파싱 결과")
+            for k, v in detail.items():
+                print(f"   {k}: {v[:80]}")
+
+            detail["공고명"] = item["공고명"]
+            detail["url"] = item["url"]
+
+            send_slack(build_slack_blocks(detail, i))
             time.sleep(1)
 
-        save_seen_ids(seen_ids)
-        print("✓ 신규 공고 알림 완료")
+        print("\n✓ 검증용 슬랙 전송 완료")
 
     finally:
         browser.close()
