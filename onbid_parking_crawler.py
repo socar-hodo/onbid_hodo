@@ -1,3 +1,4 @@
+
 import os
 import time
 import json
@@ -284,7 +285,7 @@ try:
             try:
                 cells = row.locator('td').all()
                 
-                if len(cells) < 7:
+                if len(cells) < 3:
                     continue
                 
                 # 모든 셀 텍스트 추출
@@ -298,12 +299,14 @@ try:
                 
                 row_text = ' '.join(texts)
                 
-                # 디버깅: 처음 3개 행 출력
-                if idx < 3 and len(texts) >= 7:
-                    print(f"\n  [디버그] 행 {idx}: {texts[:7]}")
+                # 주차장 키워드 확인 (더 자세히)
+                has_parking = ('주차' in row_text or '駐車' in row_text or '주차장' in row_text)
                 
-                # 주차장이면 모두 수집 (필터 없음 - 검증용)
-                if '주차' in row_text:
+                if has_parking:
+                    print(f"\n  ★ 행 {idx+1}: 주차장 키워드 발견!")
+                    print(f"     셀 개수: {len(texts)}")
+                    print(f"     전체 텍스트: {row_text[:150]}")
+                    
                     # 온비드 실제 테이블 구조에 맞게 파싱
                     
                     # 물건정보 (첫번째 컬럼)
@@ -315,6 +318,9 @@ try:
                     
                     # 물건명 추출 (나머지 줄들)
                     mulgun_name = '\n'.join(lines[1:]) if len(lines) > 1 else ''
+                    
+                    print(f"     공고번호: {gonggo_no}")
+                    print(f"     물건명: {mulgun_name[:50]}")
                     
                     # 회차/사건번호 (두번째 컬럼)
                     hoecha_sagun = texts[1] if len(texts) > 1 else ''
@@ -346,18 +352,17 @@ try:
                     if gonggo_no:
                         all_parking_data.append(parking_info)
                         current_gonggo.add(gonggo_no)
-                        page_new_count += 1
-                        
-                        print(f"  ✓ 주차장 발견: {gonggo_no}")
-                        print(f"     상태: {status_info}")
-                        print(f"     {mulgun_name[:50]}")
+                        page_count += 1
+                        print(f"     ✓ 데이터 수집 완료")
+                    else:
+                        print(f"     ✗ 공고번호 없음, 스킵")
                 
             except Exception as e:
                 if idx < 5:
-                    print(f"  행 {idx} 에러: {e}")
+                    print(f"  행 {idx+1} 에러: {e}")
                 continue
         
-        print(f"페이지 {page_num}: {page_new_count}개 NEW 주차장 추가")
+        print(f"\n페이지 {page_num}에서 {page_count}개 주차장 수집")
         
         # 다음 페이지로 이동
         if page_num < 3:
