@@ -20,13 +20,39 @@ class OnbidParkingCrawler:
     def setup_driver(self):
         """Chrome 드라이버 설정"""
         chrome_options = Options()
-        chrome_options.add_argument('--headless')  # 백그라운드 실행
+        chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-software-rasterizer')
+        chrome_options.add_argument('--disable-extensions')
         chrome_options.add_argument('--window-size=1920,1080')
+        chrome_options.add_argument('--remote-debugging-port=9222')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
         
-        self.driver = webdriver.Chrome(options=chrome_options)
+        # Chrome 바이너리 경로 설정 (GitHub Actions 환경)
+        import shutil
+        chrome_path = shutil.which('google-chrome') or shutil.which('chrome') or shutil.which('chromium')
+        if chrome_path:
+            chrome_options.binary_location = chrome_path
+            print(f"✓ Chrome 경로 찾음: {chrome_path}")
+        
+        try:
+            from selenium.webdriver.chrome.service import Service
+            from webdriver_manager.chrome import ChromeDriverManager
+            
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            print("✓ Chrome 드라이버 설정 완료 (webdriver-manager)")
+        except Exception as e:
+            print(f"webdriver-manager 실패, 기본 방식 시도: {e}")
+            try:
+                self.driver = webdriver.Chrome(options=chrome_options)
+                print("✓ Chrome 드라이버 설정 완료 (기본)")
+            except Exception as e2:
+                print(f"✗ Chrome 드라이버 설정 실패: {e2}")
+                raise
+        
         self.driver.implicitly_wait(10)
         
     def login(self):
