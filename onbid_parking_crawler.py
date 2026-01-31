@@ -33,86 +33,35 @@ class OnbidParkingCrawler:
             raise
     
     def search_parking(self):
-        """온비드 메인 페이지에서 통합검색으로 주차장 검색"""
+        """온비드 부동산 공고 페이지에서 주차장 검색"""
         try:
-            print("\n=== 온비드 메인 페이지 접속 ===")
-            self.page.goto('https://www.onbid.co.kr', timeout=60000)
+            print("\n=== 온비드 부동산 공고 페이지 접속 ===")
+            
+            # 부동산 공고 목록 페이지로 직접 이동
+            search_url = 'https://www.onbid.co.kr/op/svc/getSvcGonggoList.do?searchWord=%EC%A3%BC%EC%B0%A8%EC%9E%A5'
+            # URL 인코딩: 주차장 = %EC%A3%BC%EC%B0%A8%EC%9E%A5
+            
+            print(f"URL: {search_url}")
+            self.page.goto(search_url, timeout=60000)
             self.page.wait_for_load_state('networkidle')
-            time.sleep(3)
+            time.sleep(5)
             
-            print("✓ 메인 페이지 로드 완료")
+            print(f"✓ 페이지 로드 완료 - 현재 URL: {self.page.url}")
             
-            # 메인 페이지 스크린샷
-            self.page.screenshot(path='main_page.png', full_page=True)
-            print("스크린샷 저장: main_page.png")
+            # 페이지 스크린샷
+            self.page.screenshot(path='search_page.png', full_page=True)
+            print("스크린샷 저장: search_page.png")
             
-            print("\n=== 통합검색으로 '주차장' 검색 ===")
-            
-            # 통합검색 입력창 찾기
-            search_selectors = [
-                'input[name="searchWord"]',
-                'input#searchWord',
-                'input.search-input',
-                'input[placeholder*="검색"]',
-                '.search-box input'
-            ]
-            
-            search_found = False
-            for selector in search_selectors:
-                try:
-                    if self.page.locator(selector).count() > 0:
-                        print(f"✓ 검색창 발견: {selector}")
-                        self.page.fill(selector, '주차장')
-                        print("✓ '주차장' 입력 완료")
-                        search_found = True
-                        time.sleep(1)
-                        break
-                except Exception as e:
-                    print(f"  {selector} 시도 실패: {e}")
-                    continue
-            
-            if not search_found:
-                print("⚠️ 검색창을 찾을 수 없습니다")
+            # URL에 검색어가 포함되어 있는지 확인
+            if 'getSvcGonggoList' in self.page.url:
+                print("✓ 공고 목록 페이지 접근 성공")
+                return True
+            else:
+                print(f"⚠️ 예상과 다른 페이지: {self.page.url}")
                 return False
             
-            # 검색 버튼 클릭 (또는 Enter)
-            print("검색 실행 중...")
-            search_btn_selectors = [
-                'button.search-btn',
-                'button:has-text("검색")',
-                '.search-box button',
-                'button[type="submit"]'
-            ]
-            
-            btn_clicked = False
-            for selector in search_btn_selectors:
-                try:
-                    if self.page.locator(selector).count() > 0:
-                        print(f"✓ 검색 버튼 클릭: {selector}")
-                        self.page.click(selector)
-                        btn_clicked = True
-                        break
-                except:
-                    continue
-            
-            if not btn_clicked:
-                # 버튼을 못 찾으면 Enter 키 입력
-                print("버튼을 못 찾아 Enter 키로 검색")
-                self.page.keyboard.press('Enter')
-            
-            time.sleep(5)
-            self.page.wait_for_load_state('networkidle')
-            
-            print(f"✓ 검색 완료 - 현재 URL: {self.page.url}")
-            
-            # 검색 결과 페이지 스크린샷
-            self.page.screenshot(path='search_results.png', full_page=True)
-            print("스크린샷 저장: search_results.png")
-            
-            return True
-            
         except Exception as e:
-            print(f"✗ 검색 중 에러: {e}")
+            print(f"✗ 페이지 접속 실패: {e}")
             try:
                 self.page.screenshot(path='search_error.png', full_page=True)
             except:
