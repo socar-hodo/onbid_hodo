@@ -6,12 +6,12 @@ from datetime import datetime
 
 
 class OnbidParkingCrawler:
+    """온비드 통합검색으로 주차장 크롤링"""
+    
     def __init__(self):
         self.playwright = None
         self.browser = None
         self.page = None
-        self.onbid_id = os.environ.get('ONBID_ID', '')
-        self.onbid_pw = os.environ.get('ONBID_PW', '')
         self.slack_webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
         self.parking_data = []
         
@@ -26,286 +26,327 @@ class OnbidParkingCrawler:
             self.page = self.browser.new_page(
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             )
-            print("✓ Playwright 브라우저 설정 완료")
+            self.page.set_default_timeout(30000)
+            print("✓ 브라우저 설정 완료")
         except Exception as e:
             print(f"✗ 브라우저 설정 실패: {e}")
             raise
     
-    def login(self):
-        """온비드 로그인"""
+    def search_parking(self):
+        """온비드 메인 페이지에서 통합검색으로 주차장 검색"""
         try:
-            print("온비드 로그인 시도 중...")
-            self.page.goto('https://www.onbid.co.kr', wait_until='networkidle')
-            time.sleep(2)
-            
-            # 로그인 버튼 찾아서 클릭
-            login_selector = 'a[href*="login"], button:has-text("로그인")'
-            self.page.click(login_selector, timeout=10000)
-            time.sleep(2)
-            
-            # 아이디/비밀번호 입력
-            self.page.fill('input[name="id"], input#id, input[type="text"]', self.onbid_id)
-            self.page.fill('input[name="pw"], input#pw, input[type="password"]', self.onbid_pw)
-            
-            # 로그인 버튼 클릭
-            self.page.click('button[type="submit"], button:has-text("로그인")')
+            print("\n=== 온비드 메인 페이지 접속 ===")
+            self.page.goto('https://www.onbid.co.kr', timeout=60000)
+            self.page.wait_for_load_state('networkidle')
             time.sleep(3)
             
-            print("✓ 온비드 로그인 완료")
+            print("✓ 메인 페이지 로드 완료")
             
-        except Exception as e:
-            print(f"✗ 로그인 실패: {e}")
-            # 스크린샷 저장
-            self.page.screenshot(path='login_error.png')
-            raise
-    
-    def navigate_to_parking_list(self):
-        """주차장 목록 페이지로 이동"""
-        try:
-            print("주차장 목록 페이지로 이동 중...")
+            # 메인 페이지 스크린샷
+            self.page.screenshot(path='main_page.png', full_page=True)
+            print("스크린샷 저장: main_page.png")
             
-            # 부동산 메뉴 클릭
-            self.page.click('text=부동산', timeout=10000)
-            time.sleep(1)
+            print("\n=== 통합검색으로 '주차장' 검색 ===")
             
-            # 공고 클릭
-            self.page.click('text=공고', timeout=10000)
-            time.sleep(2)
-            
-            # 주차장 체크박스 찾아서 클릭
-            # 여러 가능한 선택자 시도
-            parking_selectors = [
-                'input[value="주차장"]',
-                'input[type="checkbox"]:has-text("주차장")',
-                'label:has-text("주차장") input'
+            # 통합검색 입력창 찾기
+            search_selectors = [
+                'input[name="searchWord"]',
+                'input#searchWord',
+                'input.search-input',
+                'input[placeholder*="검색"]',
+                '.search-box input'
             ]
             
-            for selector in parking_selectors:
+            search_found = False
+            for selector in search_selectors:
                 try:
                     if self.page.locator(selector).count() > 0:
-                        self.page.check(selector)
-                        print(f"✓ 주차장 필터 체크 완료")
+                        print(f"✓ 검색창 발견: {selector}")
+                        self.page.fill(selector, '주차장')
+                        print("✓ '주차장' 입력 완료")
+                        search_found = True
+                        time.sleep(1)
+                        break
+                except Exception as e:
+                    print(f"  {selector} 시도 실패: {e}")
+                    continue
+            
+            if not search_found:
+                print("⚠️ 검색창을 찾을 수 없습니다")
+                return False
+            
+            # 검색 버튼 클릭 (또는 Enter)
+            print("검색 실행 중...")
+            search_btn_selectors = [
+                'button.search-btn',
+                'button:has-text("검색")',
+                '.search-box button',
+                'button[type="submit"]'
+            ]
+            
+            btn_clicked = False
+            for selector in search_btn_selectors:
+                try:
+                    if self.page.locator(selector).count() > 0:
+                        print(f"✓ 검색 버튼 클릭: {selector}")
+                        self.page.click(selector)
+                        btn_clicked = True
                         break
                 except:
                     continue
             
-            # 검색 버튼 클릭
-            self.page.click('button:has-text("검색"), button.search', timeout=10000)
-            time.sleep(2)
+            if not btn_clicked:
+                # 버튼을 못 찾으면 Enter 키 입력
+                print("버튼을 못 찾아 Enter 키로 검색")
+                self.page.keyboard.press('Enter')
             
-            print("✓ 주차장 목록 페이지 이동 완료")
+            time.sleep(5)
+            self.page.wait_for_load_state('networkidle')
             
-        except Exception as e:
-            print(f"✗ 페이지 이동 실패: {e}")
-            self.page.screenshot(path='navigation_error.png')
-            raise
-    
-    def extract_parking_from_table(self):
-        """현재 페이지에서 주차장 정보 추출"""
-        try:
-            # 테이블 행 가져오기
-            rows = self.page.locator('table tbody tr').all()
+            print(f"✓ 검색 완료 - 현재 URL: {self.page.url}")
             
-            if not rows:
-                print("테이블에서 행을 찾을 수 없습니다.")
-                return []
+            # 검색 결과 페이지 스크린샷
+            self.page.screenshot(path='search_results.png', full_page=True)
+            print("스크린샷 저장: search_results.png")
             
-            page_parkings = []
-            
-            for row in rows:
-                try:
-                    cells = row.locator('td').all()
-                    
-                    if len(cells) < 8:
-                        continue
-                    
-                    parking_info = {
-                        '공고번호': cells[0].inner_text().strip(),
-                        '사건번호': cells[1].inner_text().strip(),
-                        '물건종류': cells[2].inner_text().strip(),
-                        '소재지': cells[3].inner_text().strip(),
-                        '감정가': cells[4].inner_text().strip(),
-                        '최저가': cells[5].inner_text().strip(),
-                        '입찰일시': cells[6].inner_text().strip(),
-                        '상태': cells[7].inner_text().strip(),
-                    }
-                    
-                    # 주차장만 필터링
-                    if '주차장' in parking_info['물건종류']:
-                        print(f"  ✓ 주차장 발견: {parking_info['소재지']}")
-                        page_parkings.append(parking_info)
-                
-                except Exception as e:
-                    print(f"  행 추출 중 에러: {e}")
-                    continue
-            
-            return page_parkings
+            return True
             
         except Exception as e:
-            print(f"✗ 테이블 추출 실패: {e}")
-            return []
-    
-    def crawl_parking_list(self):
-        """주차장 목록 크롤링"""
-        print("=" * 60)
-        print(f"주차장 크롤링 시작: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("=" * 60)
-        
-        try:
-            # 100개씩 보기 설정
+            print(f"✗ 검색 중 에러: {e}")
             try:
-                self.page.select_option('select[name="pageSize"]', '100')
-                time.sleep(2)
+                self.page.screenshot(path='search_error.png', full_page=True)
             except:
-                print("100개씩 보기 설정 실패, 기본값 사용")
+                pass
+            return False
+    
+    def extract_parking_data(self):
+        """검색 결과에서 주차장 데이터 추출"""
+        try:
+            print("\n=== 검색 결과 데이터 추출 ===")
+            
+            # 100개씩 보기 설정 시도
+            try:
+                page_size_selectors = [
+                    'select[name="pageSize"]',
+                    'select.page-size'
+                ]
+                for selector in page_size_selectors:
+                    if self.page.locator(selector).count() > 0:
+                        self.page.select_option(selector, '100')
+                        print("✓ 100개씩 보기 설정")
+                        time.sleep(2)
+                        break
+            except:
+                print("100개씩 보기 설정 실패 (기본값 사용)")
             
             page_num = 1
+            total_extracted = 0
             
-            while True:
-                print(f"\n현재 페이지: {page_num}")
+            while page_num <= 5:  # 최대 5페이지까지
+                print(f"\n--- 페이지 {page_num} 처리 중 ---")
                 
-                # 현재 페이지에서 주차장 추출
-                page_parkings = self.extract_parking_from_table()
-                self.parking_data.extend(page_parkings)
+                # 테이블 찾기
+                table_selectors = [
+                    'table.tbl-list tbody',
+                    'table.list tbody',
+                    'table tbody',
+                    '.list-table tbody'
+                ]
                 
-                # 다음 페이지 버튼 찾기
-                try:
-                    next_btn = self.page.locator('a.next, a:has-text("다음")').first
-                    
-                    if next_btn.is_visible() and not next_btn.get_attribute('class') or 'disabled' not in next_btn.get_attribute('class'):
-                        next_btn.click()
-                        time.sleep(2)
-                        page_num += 1
-                    else:
+                table_found = None
+                for selector in table_selectors:
+                    if self.page.locator(selector).count() > 0:
+                        table_found = selector
+                        print(f"✓ 테이블 발견: {selector}")
                         break
-                except:
-                    print("다음 페이지 없음 또는 마지막 페이지")
+                
+                if not table_found:
+                    print("⚠️ 테이블을 찾을 수 없습니다")
                     break
                 
-                # 안전을 위해 최대 10페이지까지만
-                if page_num > 10:
-                    print("최대 페이지 도달 (10페이지)")
+                # 행 추출
+                rows = self.page.locator(f'{table_found} tr').all()
+                print(f"총 {len(rows)}개 행 발견")
+                
+                page_count = 0
+                for idx, row in enumerate(rows):
+                    try:
+                        cells = row.locator('td').all()
+                        
+                        if len(cells) < 5:
+                            continue
+                        
+                        # 텍스트 추출
+                        cell_texts = []
+                        for cell in cells:
+                            try:
+                                text = cell.inner_text().strip()
+                                cell_texts.append(text)
+                            except:
+                                cell_texts.append('')
+                        
+                        # 주차장 키워드 확인
+                        row_text = ' '.join(cell_texts)
+                        if '주차' in row_text or '駐車' in row_text:
+                            print(f"  ✓ 주차장 발견 (행 {idx+1})")
+                            
+                            # 데이터 구조화 (온비드 테이블 구조에 맞게)
+                            parking_info = {
+                                '데이터': cell_texts
+                            }
+                            
+                            # 일반적인 온비드 테이블 구조 (8-10열)
+                            if len(cell_texts) >= 8:
+                                parking_info = {
+                                    '공고번호': cell_texts[0] if len(cell_texts) > 0 else '',
+                                    '사건번호': cell_texts[1] if len(cell_texts) > 1 else '',
+                                    '물건종류': cell_texts[2] if len(cell_texts) > 2 else '',
+                                    '소재지': cell_texts[3] if len(cell_texts) > 3 else '',
+                                    '감정가': cell_texts[4] if len(cell_texts) > 4 else '',
+                                    '최저가': cell_texts[5] if len(cell_texts) > 5 else '',
+                                    '입찰일시': cell_texts[6] if len(cell_texts) > 6 else '',
+                                    '상태': cell_texts[7] if len(cell_texts) > 7 else '',
+                                }
+                            else:
+                                # 열이 적으면 유연하게 처리
+                                parking_info = {
+                                    '정보1': cell_texts[0] if len(cell_texts) > 0 else '',
+                                    '정보2': cell_texts[1] if len(cell_texts) > 1 else '',
+                                    '정보3': cell_texts[2] if len(cell_texts) > 2 else '',
+                                    '정보4': cell_texts[3] if len(cell_texts) > 3 else '',
+                                    '정보5': cell_texts[4] if len(cell_texts) > 4 else '',
+                                }
+                            
+                            self.parking_data.append(parking_info)
+                            page_count += 1
+                            total_extracted += 1
+                    
+                    except Exception as e:
+                        print(f"  행 처리 중 에러: {e}")
+                        continue
+                
+                print(f"페이지 {page_num}에서 {page_count}개 추출 (누적: {total_extracted}개)")
+                
+                # 다음 페이지로 이동
+                try:
+                    next_selectors = [
+                        'a.next:not(.disabled)',
+                        'a:has-text("다음"):not(.disabled)',
+                        '.pagination a.next'
+                    ]
+                    
+                    next_found = False
+                    for selector in next_selectors:
+                        try:
+                            next_btn = self.page.locator(selector).first
+                            if next_btn.is_visible():
+                                print("다음 페이지로 이동 중...")
+                                next_btn.click()
+                                time.sleep(3)
+                                self.page.wait_for_load_state('networkidle')
+                                next_found = True
+                                break
+                        except:
+                            continue
+                    
+                    if not next_found:
+                        print("더 이상 페이지 없음")
+                        break
+                    
+                except Exception as e:
+                    print(f"페이지 이동 실패: {e}")
                     break
+                
+                page_num += 1
             
-            print(f"\n총 {len(self.parking_data)}개 주차장 발견")
+            print(f"\n✓ 총 {len(self.parking_data)}개 주차장 데이터 수집 완료")
             
         except Exception as e:
-            print(f"✗ 크롤링 중 오류: {e}")
-            self.page.screenshot(path='crawling_error.png')
-    
-    def format_slack_message(self, parking_info):
-        """슬랙 메시지 포맷"""
-        blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"🅿️ 주차장 경매",
-                    "emoji": True
-                }
-            },
-            {
-                "type": "section",
-                "fields": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*공고번호*\n{parking_info['공고번호']}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*사건번호*\n{parking_info['사건번호']}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*물건종류*\n{parking_info['물건종류']}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*소재지*\n{parking_info['소재지']}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*감정가*\n{parking_info['감정가']}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*최저가*\n{parking_info['최저가']}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*입찰일시*\n{parking_info['입찰일시']}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*상태*\n{parking_info['상태']}"
-                    }
-                ]
-            },
-            {
-                "type": "divider"
-            }
-        ]
-        
-        return blocks
+            print(f"✗ 데이터 추출 실패: {e}")
     
     def send_to_slack(self):
         """슬랙으로 결과 전송"""
-        if not self.parking_data:
-            # 결과 없을 때 메시지
-            blocks = [
+        if not self.slack_webhook_url:
+            print("⚠️ Slack Webhook URL이 설정되지 않았습니다")
+            return
+        
+        try:
+            # 헤더 전송
+            header_blocks = [
                 {
                     "type": "header",
                     "text": {
                         "type": "plain_text",
-                        "text": "🅿️ 온비드 주차장 경매 정보",
+                        "text": "🅿️ 온비드 주차장 검색 결과",
                         "emoji": True
                     }
                 },
                 {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"📅 {datetime.now().strftime('%Y년 %m월 %d일 %H:%M')} | 검색어: *주차장*"
+                        }
+                    ]
+                }
+            ]
+            
+            if not self.parking_data:
+                header_blocks.append({
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*{datetime.now().strftime('%Y년 %m월 %d일')}*\n\n검색된 주차장이 없습니다."
+                        "text": "⚠️ 검색된 주차장이 없습니다.\nGitHub Actions의 Artifacts에서 스크린샷을 확인해주세요."
                     }
-                }
-            ]
-            requests.post(self.slack_webhook_url, json={"blocks": blocks})
-            return
-        
-        # 헤더 전송
-        header_blocks = [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": "🅿️ 온비드 주차장 경매 정보",
-                    "emoji": True
-                }
-            },
-            {
-                "type": "context",
-                "elements": [
-                    {
+                })
+            else:
+                header_blocks.append({
+                    "type": "section",
+                    "text": {
                         "type": "mrkdwn",
-                        "text": f"📅 {datetime.now().strftime('%Y년 %m월 %d일 %H:%M')} | 총 {len(self.parking_data)}개 발견"
+                        "text": f"✅ 총 *{len(self.parking_data)}개* 주차장 발견 (최대 20개 표시)"
                     }
-                ]
-            },
-            {
-                "type": "divider"
-            }
-        ]
-        
-        requests.post(self.slack_webhook_url, json={"blocks": header_blocks})
-        time.sleep(1)
-        
-        # 각 주차장 정보 전송
-        for parking in self.parking_data[:20]:  # 최대 20개까지만
-            blocks = self.format_slack_message(parking)
-            requests.post(self.slack_webhook_url, json={"blocks": blocks})
+                })
+            
+            header_blocks.append({"type": "divider"})
+            
+            requests.post(self.slack_webhook_url, json={"blocks": header_blocks}, timeout=10)
             time.sleep(1)
-        
-        print(f"✓ 슬랙 전송 완료: {len(self.parking_data)}개 (최대 20개 표시)")
+            
+            # 각 주차장 정보 전송 (최대 20개)
+            for idx, parking in enumerate(self.parking_data[:20], 1):
+                fields = []
+                
+                for key, value in parking.items():
+                    if value and value.strip():
+                        fields.append({
+                            "type": "mrkdwn",
+                            "text": f"*{key}*\n{value[:100]}"
+                        })
+                
+                blocks = [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{idx}. 주차장 정보*"
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "fields": fields[:8]  # 최대 8개 필드
+                    },
+                    {"type": "divider"}
+                ]
+                
+                requests.post(self.slack_webhook_url, json={"blocks": blocks}, timeout=10)
+                time.sleep(1)
+            
+            print("✓ 슬랙 전송 완료")
+            
+        except Exception as e:
+            print(f"✗ 슬랙 전송 실패: {e}")
     
     def cleanup(self):
         """리소스 정리"""
@@ -323,35 +364,59 @@ class OnbidParkingCrawler:
     def run(self):
         """크롤러 실행"""
         try:
+            print("=" * 70)
+            print(f"온비드 주차장 크롤링 시작: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print("=" * 70)
+            
             self.setup_browser()
-            self.login()
-            self.navigate_to_parking_list()
-            self.crawl_parking_list()
-            self.send_to_slack()
+            
+            if self.search_parking():
+                self.extract_parking_data()
+                self.send_to_slack()
+            else:
+                print("✗ 검색 실패")
+                if self.slack_webhook_url:
+                    error_blocks = [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": "⚠️ 온비드 검색 실패\nGitHub Actions의 Artifacts에서 스크린샷을 확인해주세요."
+                            }
+                        }
+                    ]
+                    requests.post(self.slack_webhook_url, json={"blocks": error_blocks})
+            
+            print("\n" + "=" * 70)
+            print("크롤링 완료")
+            print("=" * 70)
             
         except Exception as e:
-            print(f"✗ 실행 중 오류: {e}")
+            print(f"\n✗ 치명적 오류: {e}")
             
             # 에러 메시지를 슬랙으로 전송
             if self.slack_webhook_url:
-                error_blocks = [
-                    {
-                        "type": "header",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "⚠️ 크롤링 오류 발생",
-                            "emoji": True
+                try:
+                    error_blocks = [
+                        {
+                            "type": "header",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "⚠️ 크롤링 오류",
+                                "emoji": True
+                            }
+                        },
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": f"```{str(e)[:500]}```"
+                            }
                         }
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f"```{str(e)}```"
-                        }
-                    }
-                ]
-                requests.post(self.slack_webhook_url, json={"blocks": error_blocks})
+                    ]
+                    requests.post(self.slack_webhook_url, json={"blocks": error_blocks})
+                except:
+                    pass
             
         finally:
             self.cleanup()
