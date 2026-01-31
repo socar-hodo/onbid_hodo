@@ -111,26 +111,42 @@ def go_to_list(page):
     page.wait_for_load_state("networkidle")
 
 def collect_links(page):
+    """
+    카드형 목록 대응 버전
+    - 상세 페이지로 가는 a 태그 기반
+    - 텍스트에 '주차장' 포함된 것만 필터
+    """
     results = []
-    rows = page.locator("table tbody tr").all()
 
-    print(f"[DEBUG] 목록 row 수: {len(rows)}")
+    links = page.locator('a[href*="detail"]').all()
+    print(f"[DEBUG] detail 링크 후보 수: {len(links)}")
 
-    for row in rows:
-        if "주차장" not in row.inner_text():
-            continue
+    for i, link in enumerate(links):
+        try:
+            text = link.inner_text()
+            href = link.get_attribute("href")
 
-        link = row.locator("a").first
-        href = link.get_attribute("href")
-        title = link.inner_text().strip()
+            if not href:
+                continue
 
-        if href:
+            if "주차장" not in text:
+                continue
+
+            title = text.split("\n")[0].strip()
+
+            print(f"[DEBUG] 주차장 공고 발견 {i}")
+            print(f"        title: {title}")
+            print(f"        href: {href}")
+
             results.append({
                 "공고명": title,
                 "url": BASE_URL + href
             })
 
-    print(f"[DEBUG] 주차장 공고 수집 결과: {len(results)}")
+        except:
+            continue
+
+    print(f"[DEBUG] 최종 주차장 공고 수: {len(results)}")
     return results
 
 def parse_detail(page):
@@ -221,4 +237,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
