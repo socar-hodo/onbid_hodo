@@ -7,7 +7,6 @@ from playwright.sync_api import sync_playwright
 
 BASE_URL = "https://www.onbid.co.kr"
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
-
 TEST_LIMIT = 5
 
 # -------------------------------------------------
@@ -48,30 +47,43 @@ def build_slack_blocks(data, idx):
     ]
 
 # -------------------------------------------------
-# 사람처럼 검색해서 목록 진입
+# 검색 → iframe 진입
 # -------------------------------------------------
-def go_to_list(page):
+def go_to_search_frame(page):
     print("[DEBUG] 메인 페이지 접속")
     page.goto(BASE_URL, timeout=60000)
     page.wait_for_load_state("networkidle")
 
-    # 검색어 입력
+    # 검색어 입력 후 Enter
     page.fill('input[type="text"]', "주차장")
     page.keyboard.press("Enter")
 
-    page.wait_for_load_state("networkidle")
-    page.wait_for_timeout(3000)
+    time.sleep(3)
 
-    page.screenshot(path="debug_after_search.png", full_page=True)
-    print("[DEBUG] 검색 결과 페이지 진입 완료")
+    # iframe 탐색
+    frames = page.frames
+    print(f"[DEBUG] 발견된 iframe 수: {len(frames)}")
+
+    for f in frames:
+        try:
+            html = f.content()
+            if "입찰물건" in html or "공고" in html:
+                print("[DEBUG] 검색 결과 iframe 발견")
+                return f
+        except:
+            continue
+
+    print("[DEBUG] 검색 결과 iframe 못 찾음")
+    return None
 
 # -------------------------------------------------
-# 목록 수집 (onclick 기반)
+# 목록 수집 (iframe 내부)
 # -------------------------------------------------
-def collect_links(page):
+def collect_links(frame):
     results = []
-    items = page.locator('[onclick]').all()
-    print(f"[DEBUG] onclick 요소 수: {len(items)}")
+    items = frame.locator('[onclick]').all()
+
+    print(f"[DEBUG] iframe 내 onclick 요소 수: {len(items)}")
 
     for el in items:
         try:
@@ -101,12 +113,11 @@ def collect_links(page):
     return results
 
 # -------------------------------------------------
-# 상세 페이지 파싱
+# 상세 페이지
 # -------------------------------------------------
 def parse_detail(page):
     data = {}
     rows = page.locator("div.info-row").all()
-
     for row in rows:
         try:
             k = row.locator(".info-tit").inner_text().strip()
@@ -114,11 +125,10 @@ def parse_detail(page):
             data[k] = v
         except:
             continue
-
     return data
 
 # -------------------------------------------------
-# Main (검증)
+# Main
 # -------------------------------------------------
 def main():
     playwright = sync_playwright().start()
@@ -128,8 +138,15 @@ def main():
     try:
         print("=== 온비드 주차장 크롤링 검증 시작 ===")
 
-        go_to_list(page)
-        items = collect_links(page)
+        frame = go_to_search_frame(page)
+        if not frame:
+            send_slack([{
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "❌ 검색 결과 iframe을 찾지 못했습니다"}
+            }])
+            return
+
+        items = collect_links(frame)
 
         if not items:
             send_slack([{
