@@ -3,14 +3,22 @@ import time
 import json
 import requests
 from playwright.sync_api import sync_playwright
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+# 한국 시간 설정
+KST = timezone(timedelta(hours=9))
+
+def get_kst_now():
+    """한국 시간 반환"""
+    return datetime.now(KST)
 
 slack_webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
 onbid_id = os.environ.get('ONBID_ID', '')
 onbid_pw = os.environ.get('ONBID_PW', '')
 
 print("=" * 70)
-print("온비드 주차장 크롤러 v2.0 (NEW만 + 중복제거 + 다중페이지)")
+print(f"온비드 주차장 크롤러 v2.0 (NEW만 + 중복제거 + 다중페이지)")
+print(f"실행 시간(KST): {get_kst_now().strftime('%Y년 %m월 %d일 %H:%M:%S')}")
 print("=" * 70)
 
 # 이전 크롤링 데이터 저장용
@@ -293,8 +301,8 @@ try:
                 if idx < 3 and len(texts) >= 7:
                     print(f"\n  [디버그] 행 {idx}: {texts[:7]}")
                 
-                # 주차장이면서 NEW 상태만
-                if '주차' in row_text and 'NEW' in row_text:
+                # 주차장이면 모두 수집 (NEW 필터 제거 - 검증용)
+                if '주차' in row_text:
                     # 온비드 실제 테이블 구조에 맞게 파싱
                     # 컬럼: 물건정보, 회차/사건, 입찰일시, 감정가/최저가, 상태, ...
                     
@@ -335,15 +343,20 @@ try:
                         '추가정보2': extra2
                     }
                     
-                    # 중복 체크
-                    if gonggo_no and gonggo_no not in previous_gonggo:
+                    # 중복 체크 (검증용이므로 중복도 표시)
+                    is_duplicate = gonggo_no in previous_gonggo
+                    parking_info['중복여부'] = '중복' if is_duplicate else '신규'
+                    
+                    if gonggo_no:
                         all_parking_data.append(parking_info)
                         current_gonggo.add(gonggo_no)
                         page_new_count += 1
-                        print(f"  ✓ NEW 주차장: {gonggo_no}")
+                        
+                        status_marker = "★★★" if 'NEW' in status_info else ""
+                        duplicate_marker = "[중복]" if is_duplicate else "[신규]"
+                        print(f"  {status_marker} {duplicate_marker} {gonggo_no}")
+                        print(f"     상태: {status_info}")
                         print(f"     {mulgun_name[:50]}")
-                    elif gonggo_no in previous_gonggo:
-                        print(f"  - 이미 크롤링됨: {gonggo_no}")
                 
             except Exception as e:
                 if idx < 5:
@@ -396,7 +409,7 @@ try:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "🆕 온비드 NEW 주차장 경매",
+                    "text": "🅿️ 온비드 주차장 경매 (전체 - 검증용)",
                     "emoji": True
                 }
             },
@@ -404,7 +417,7 @@ try:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"📅 *{datetime.now().strftime('%Y년 %m월 %d일 %H:%M')}*\n\n총 *{len(all_parking_data)}개* 새로운 주차장 발견"
+                    "text": f"📅 *{get_kst_now().strftime('%Y년 %m월 %d일 %H:%M')} (KST)*\n\n총 *{len(all_parking_data)}개* 주차장 발견"
                 }
             },
             {
@@ -412,7 +425,7 @@ try:
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"💾 이전 크롤링: {len(previous_gonggo)}개 | 🔍 중복 제거 완료"
+                        "text": f"⚠️ NEW 필터 제거됨 (검증용) | 💾 이전 크롤링: {len(previous_gonggo)}개"
                     }
                 ]
             },
@@ -446,7 +459,7 @@ try:
                     "type": "header",
                     "text": {
                         "type": "plain_text",
-                        "text": f"🅿️ {idx}. 주차장 경매 (NEW)",
+                        "text": f"🅿️ {idx}. 주차장 {'🆕' if parking['중복여부'] == '신규' else '🔄'}",
                         "emoji": True
                     }
                 },
@@ -460,6 +473,19 @@ try:
                         {
                             "type": "mrkdwn",
                             "text": f"*⚖️ 회차/사건*\n{parking['회차/사건']}"
+                        }
+                    ]
+                },
+                {
+                    "type": "section",
+                    "fields": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*🏷️ 상태*\n{parking['상태']}"
+                        },
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*🔄 중복여부*\n{parking['중복여부']}"
                         }
                     ]
                 },
@@ -551,7 +577,7 @@ try:
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"📅 *{datetime.now().strftime('%Y년 %m월 %d일 %H:%M')}*\n\n새로운 주차장이 없습니다. ✅"
+                    "text": f"📅 *{get_kst_now().strftime('%Y년 %m월 %d일 %H:%M')} (KST)*\n\n새로운 주차장이 없습니다. ✅"
                 }
             }
         ]
