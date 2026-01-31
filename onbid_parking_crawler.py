@@ -20,12 +20,16 @@ browser = playwright.chromium.launch(
 page = browser.new_page()
 
 try:
+    # -------------------------------------------------
     # 0. 메인 페이지
+    # -------------------------------------------------
     page.goto("https://www.onbid.co.kr", timeout=60000)
     page.wait_for_load_state("networkidle")
     time.sleep(2)
 
-    # 1. 로그인 (선택)
+    # -------------------------------------------------
+    # 1. 로그인 (있을 경우)
+    # -------------------------------------------------
     if ONBID_ID and ONBID_PW:
         for s in ['a:has-text("로그인")', 'button:has-text("로그인")']:
             if page.locator(s).count():
@@ -51,12 +55,14 @@ try:
         page.wait_for_load_state("networkidle")
         time.sleep(3)
 
-    # 2. 부동산 메뉴 클릭 (이것만 클릭)
+    # -------------------------------------------------
+    # 2. 부동산 → 공고 (메뉴 클릭)
+    # -------------------------------------------------
     if page.locator('a:has-text("부동산")').count():
         page.click('a:has-text("부동산")')
         time.sleep(2)
 
-    # 3. 공고 페이지로 직접 이동 (⭐ 핵심)
+    # 공고 메뉴는 직접 URL 이동 (가시성 이슈 회피)
     page.goto(
         "https://www.onbid.co.kr/op/ppa/plnmmn/publicAnnounceRlstList.do",
         timeout=60000
@@ -64,7 +70,9 @@ try:
     page.wait_for_load_state("networkidle")
     time.sleep(3)
 
-    # 4. 검색어 입력
+    # -------------------------------------------------
+    # 3. 검색어 입력
+    # -------------------------------------------------
     for s in [
         'input[name="searchWord"]',
         'input[placeholder*="검색"]'
@@ -73,7 +81,9 @@ try:
             page.fill(s, "주차장")
             break
 
-    # 5. 검색 실행
+    # -------------------------------------------------
+    # 4. 검색 실행
+    # -------------------------------------------------
     for s in ['button:has-text("검색")', 'input[type="submit"]']:
         if page.locator(s).count():
             page.click(s)
@@ -82,30 +92,47 @@ try:
     page.wait_for_load_state("networkidle")
     time.sleep(3)
 
-    # 6. 테이블 결과 파싱
+    # -------------------------------------------------
+    # 5. 결과 테이블 파싱 (⭐ 필드 정확 버전)
+    # -------------------------------------------------
     rows = page.locator("tr").all()
     parking_data = []
 
+    KEYWORDS = ["주차", "주차장", "주차시설"]
+
     for row in rows:
         cells = row.locator("td").all()
-        if len(cells) < 4:
+        if len(cells) < 6:
             continue
 
-        texts = [c.inner_text().strip() for c in cells]
-        row_text = " ".join(texts)
+        # 컬럼 추출
+        gonggo_no = cells[0].inner_text().strip()      # 공고번호
+        info_text = cells[1].inner_text().strip()     # 제목 + 소재지
+        bid_period = cells[3].inner_text().strip()    # 입찰기간
+        min_price = cells[4].inner_text().strip()     # 최저입찰가
+        status = cells[6].inner_text().strip() if len(cells) > 6 else ""
 
-        if "주차" not in row_text:
+        # 제목 / 소재지 분리
+        info_lines = info_text.split("\n")
+        title = info_lines[0]
+        address = " ".join(info_lines[1:]) if len(info_lines) > 1 else ""
+
+        # 주차장 관련 필터
+        if not any(k in (title + address) for k in KEYWORDS):
             continue
 
         parking_data.append({
-            "공고번호": texts[0],
-            "물건정보": texts[2],
-            "소재지": texts[3],
-            "입찰기간": texts[6] if len(texts) > 6 else "",
-            "상태": texts[-1]
+            "공고번호": gonggo_no,
+            "공고명": title,
+            "소재지": address,
+            "입찰기간": bid_period,
+            "최저입찰가": min_price,
+            "상태": status
         })
 
-    # 7. Slack 전송
+    # -------------------------------------------------
+    # 6. Slack 전송
+    # -------------------------------------------------
     if SLACK_WEBHOOK_URL:
         requests.post(SLACK_WEBHOOK_URL, json={
             "blocks": [
@@ -138,7 +165,10 @@ try:
                 "blocks": [
                     {
                         "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"*{i}. 주차장*"}
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*{i}. 주차장*"
+                        }
                     },
                     {
                         "type": "section",
@@ -156,5 +186,3 @@ finally:
     browser.close()
     playwright.stop()
     print("완료")
-
-
