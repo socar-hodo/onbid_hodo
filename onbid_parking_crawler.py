@@ -1,16 +1,14 @@
 import os
 import time
+import re
 import requests
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 
 BASE_URL = "https://www.onbid.co.kr"
-
 SLACK_WEBHOOK_URL = os.environ.get("SLACK_WEBHOOK_URL")
-ONBID_ID = os.environ.get("ONBID_ID", "")
-ONBID_PW = os.environ.get("ONBID_PW", "")
 
-TEST_LIMIT = 5   # 🔍 검증용: 슬랙으로 보낼 공고 수 제한
+TEST_LIMIT = 5
 
 # -------------------------------------------------
 # Slack
@@ -50,97 +48,50 @@ def build_slack_blocks(data, idx):
     ]
 
 # -------------------------------------------------
-# Login (안전 버전)
+# 사람처럼 검색해서 목록 진입
 # -------------------------------------------------
-def login(page):
-    if not ONBID_ID or not ONBID_PW:
-        print("로그인 정보 없음 → 비로그인 진행")
-        return
-
+def go_to_list(page):
+    print("[DEBUG] 메인 페이지 접속")
     page.goto(BASE_URL, timeout=60000)
     page.wait_for_load_state("networkidle")
 
-    login_selectors = [
-        'a:has-text("로그인")',
-        'button:has-text("로그인")',
-        'input[value*="로그인"]'
-    ]
+    # 검색어 입력
+    page.fill('input[type="text"]', "주차장")
+    page.keyboard.press("Enter")
 
-    clicked = False
-    for s in login_selectors:
-        try:
-            if page.locator(s).count() > 0:
-                page.click(s, timeout=5000)
-                clicked = True
-                break
-        except:
-            continue
-
-    if not clicked:
-        print("로그인 버튼 없음 → 스킵")
-        return
-
-    page.wait_for_timeout(2000)
-
-    for s in ['input[name="id"]', 'input[name="userId"]', 'input[type="text"]']:
-        if page.locator(s).count() > 0:
-            page.fill(s, ONBID_ID)
-            break
-
-    for s in ['input[name="pw"]', 'input[name="password"]', 'input[type="password"]']:
-        if page.locator(s).count() > 0:
-            page.fill(s, ONBID_PW)
-            break
-
-    for s in ['button:has-text("로그인")', 'input[type="submit"]']:
-        if page.locator(s).count() > 0:
-            page.click(s)
-            break
-
+    page.wait_for_load_state("networkidle")
     page.wait_for_timeout(3000)
-    page.wait_for_load_state("networkidle")
-    print("✓ 로그인 시도 완료")
+
+    page.screenshot(path="debug_after_search.png", full_page=True)
+    print("[DEBUG] 검색 결과 페이지 진입 완료")
 
 # -------------------------------------------------
-# Crawling
+# 목록 수집 (onclick 기반)
 # -------------------------------------------------
-def go_to_list(page):
-    url = f"{BASE_URL}/op/opi/opip/gonggoList.do?searchWord=주차장"
-    print(f"[DEBUG] 목록 페이지 이동: {url}")
-    page.goto(url)
-    page.wait_for_load_state("networkidle")
-
 def collect_links(page):
-    """
-    카드형 목록 대응 버전
-    - 상세 페이지로 가는 a 태그 기반
-    - 텍스트에 '주차장' 포함된 것만 필터
-    """
     results = []
+    items = page.locator('[onclick]').all()
+    print(f"[DEBUG] onclick 요소 수: {len(items)}")
 
-    links = page.locator('a[href*="detail"]').all()
-    print(f"[DEBUG] detail 링크 후보 수: {len(links)}")
-
-    for i, link in enumerate(links):
+    for el in items:
         try:
-            text = link.inner_text()
-            href = link.get_attribute("href")
+            onclick = el.get_attribute("onclick")
+            text = el.inner_text()
 
-            if not href:
+            if not onclick or "주차장" not in text:
                 continue
 
-            if "주차장" not in text:
+            m = re.search(r'\d{4}-\d{4}-\d{6}', onclick)
+            if not m:
                 continue
 
+            gonggo_no = m.group(0)
+            url = f"{BASE_URL}/op/opi/opip/gonggoDetail.do?gonggoNo={gonggo_no}"
             title = text.split("\n")[0].strip()
-
-            print(f"[DEBUG] 주차장 공고 발견 {i}")
-            print(f"        title: {title}")
-            print(f"        href: {href}")
 
             results.append({
                 "공고명": title,
-                "url": BASE_URL + href
+                "url": url
             })
 
         except:
@@ -149,24 +100,25 @@ def collect_links(page):
     print(f"[DEBUG] 최종 주차장 공고 수: {len(results)}")
     return results
 
+# -------------------------------------------------
+# 상세 페이지 파싱
+# -------------------------------------------------
 def parse_detail(page):
     data = {}
     rows = page.locator("div.info-row").all()
 
-    print(f"[DEBUG] 상세 info-row 수: {len(rows)}")
-
     for row in rows:
         try:
-            key = row.locator(".info-tit").inner_text().strip()
-            val = row.locator(".info-txt").inner_text().strip()
-            data[key] = val
+            k = row.locator(".info-tit").inner_text().strip()
+            v = row.locator(".info-txt").inner_text().strip()
+            data[k] = v
         except:
             continue
 
     return data
 
 # -------------------------------------------------
-# Main (검증 모드)
+# Main (검증)
 # -------------------------------------------------
 def main():
     playwright = sync_playwright().start()
@@ -174,13 +126,9 @@ def main():
     page = browser.new_page()
 
     try:
-        print("=" * 70)
-        print("온비드 주차장 크롤링 검증 모드 시작")
-        print("=" * 70)
+        print("=== 온비드 주차장 크롤링 검증 시작 ===")
 
-        login(page)
         go_to_list(page)
-
         items = collect_links(page)
 
         if not items:
@@ -203,33 +151,22 @@ def main():
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-                            f"총 *{len(items)}건* 중 상위 *{TEST_LIMIT}건* 전송"
+                    "text": f"총 *{len(items)}건* 중 상위 *{TEST_LIMIT}건* 전송"
                 }
             },
             {"type": "divider"}
         ])
 
         for i, item in enumerate(items[:TEST_LIMIT], 1):
-            print(f"\n[DEBUG] 상세 페이지 진입 {i}")
-            print(f"        URL: {item['url']}")
-
             page.goto(item["url"])
             page.wait_for_load_state("networkidle")
 
             detail = parse_detail(page)
-
-            print("[DEBUG] 파싱 결과")
-            for k, v in detail.items():
-                print(f"   {k}: {v[:80]}")
-
             detail["공고명"] = item["공고명"]
             detail["url"] = item["url"]
 
             send_slack(build_slack_blocks(detail, i))
             time.sleep(1)
-
-        print("\n✓ 검증용 슬랙 전송 완료")
 
     finally:
         browser.close()
@@ -237,5 +174,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
