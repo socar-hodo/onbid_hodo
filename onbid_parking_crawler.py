@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import requests
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta, timezone
@@ -11,10 +12,40 @@ slack_webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
 onbid_id = os.environ.get('ONBID_ID', '')
 onbid_pw = os.environ.get('ONBID_PW', '')
 
+# 저장 키
+STORAGE_KEY = 'onbid_parking_history'
+
+def load_previous_gonggo():
+    """이전에 알림 보낸 공고번호 불러오기"""
+    try:
+        import window
+        result = window.storage.get(STORAGE_KEY, shared=False)
+        if result and result.get('value'):
+            data = json.loads(result['value'])
+            print(f"✓ 이전 알림 기록: {len(data)}개 공고")
+            return set(data)
+        return set()
+    except:
+        print("⚠️ 저장소 접근 불가 (첫 실행 또는 미지원)")
+        return set()
+
+def save_current_gonggo(gonggo_set):
+    """현재 공고번호 저장"""
+    try:
+        import window
+        data = json.dumps(list(gonggo_set))
+        window.storage.set(STORAGE_KEY, data, shared=False)
+        print(f"✓ 알림 기록 저장: {len(gonggo_set)}개")
+    except Exception as e:
+        print(f"⚠️ 저장 실패: {e}")
+
 print("=" * 70)
-print(f"온비드 주차장 크롤러 (검증 모드)")
+print(f"온비드 주차장 경매 알리미")
 print(f"실행 시간(KST): {datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M:%S')}")
 print("=" * 70)
+
+# 이전 알림 기록 불러오기
+previous_gonggo = load_previous_gonggo()
 
 # Playwright 시작
 playwright = sync_playwright().start()
@@ -22,6 +53,7 @@ browser = playwright.chromium.launch(headless=True, args=['--no-sandbox'])
 page = browser.new_page()
 
 all_parking_data = []
+current_gonggo = set()
 
 try:
     # 로그인
@@ -32,20 +64,16 @@ try:
     
     if onbid_id and onbid_pw:
         try:
-            # 로그인 버튼
             if page.locator('a:has-text("로그인")').count() > 0:
                 page.click('a:has-text("로그인")', timeout=5000)
                 time.sleep(3)
             
-            # 아이디 입력
             if page.locator('input[type="text"]').count() > 0:
                 page.fill('input[type="text"]', onbid_id, timeout=5000)
             
-            # 비밀번호 입력
             if page.locator('input[type="password"]').count() > 0:
                 page.fill('input[type="password"]', onbid_pw, timeout=5000)
             
-            # 로그인 제출
             if page.locator('button[type="submit"]').count() > 0:
                 page.click('button[type="submit"]', timeout=5000)
             
@@ -89,7 +117,8 @@ try:
     all_tr = page.locator('tr').all()
     print(f"총 {len(all_tr)}개 행 발견")
     
-    found_count = 0
+    new_count = 0
+    duplicate_count = 0
     
     for idx, row in enumerate(all_tr):
         try:
@@ -111,42 +140,65 @@ try:
             
             # 주차장 키워드 확인
             if '주차' in row_text or '주차장' in row_text:
-                print(f"\n★ 행 {idx+1}: 주차장 발견!")
+                # 첫 번째 셀 분석
+                first_cell = texts[0] if len(texts) > 0 else ''
+                lines = first_cell.split('\n')
                 
-                # 첫 번째 셀에서 정보 추출
-                mulgun_info = texts[0] if len(texts) > 0 else ''
-                lines = mulgun_info.split('\n')
+                # 데이터 형식 구분
+                is_long_format = len(lines) > 3
                 
-                gonggo_no = lines[0] if len(lines) > 0 else ''
-                mulgun_name = '\n'.join(lines[1:]) if len(lines) > 1 else ''
+                if is_long_format:
+                    # 일반 경매
+                    gonggo_no = lines[0] if len(lines) > 0 else ''
+                    mulgun_name = '\n'.join(lines[1:]) if len(lines) > 1 else ''
+                    
+                    parking_info = {
+                        '공고번호': gonggo_no,
+                        '물건명': mulgun_name,
+                        '회차/사건': texts[1] if len(texts) > 1 else '',
+                        '입찰일시': texts[2] if len(texts) > 2 else '',
+                        '감정가정보': texts[3] if len(texts) > 3 else '',
+                        '상태': texts[4] if len(texts) > 4 else '',
+                    }
+                else:
+                    # 일반공고/위수탁
+                    gonggo_no = first_cell
+                    title = texts[1] if len(texts) > 1 else ''
+                    info_text = ' | '.join(texts[2:5]) if len(texts) > 2 else ''
+                    
+                    parking_info = {
+                        '공고번호': gonggo_no,
+                        '물건명': title,
+                        '회차/사건': '',
+                        '입찰일시': texts[3] if len(texts) > 3 else '',
+                        '감정가정보': info_text,
+                        '상태': texts[2] if len(texts) > 2 else '',
+                    }
                 
-                print(f"   공고번호: {gonggo_no}")
-                print(f"   물건명: {mulgun_name[:60]}")
-                
-                parking_info = {
-                    '공고번호': gonggo_no,
-                    '물건명': mulgun_name,
-                    '회차/사건': texts[1] if len(texts) > 1 else '',
-                    '입찰일시': texts[2] if len(texts) > 2 else '',
-                    '감정가정보': texts[3] if len(texts) > 3 else '',
-                    '상태': texts[4] if len(texts) > 4 else '',
-                }
-                
+                # 중복 체크
                 if gonggo_no:
-                    all_parking_data.append(parking_info)
-                    found_count += 1
-                    print(f"   ✓ 수집 완료 ({found_count}개)")
+                    current_gonggo.add(gonggo_no)
+                    
+                    if gonggo_no not in previous_gonggo:
+                        all_parking_data.append(parking_info)
+                        new_count += 1
+                        print(f"  🆕 새로운 주차장: {gonggo_no}")
+                    else:
+                        duplicate_count += 1
+                        print(f"  ⏭️  이미 알림: {gonggo_no}")
         
         except Exception as e:
             continue
     
     print(f"\n{'='*70}")
-    print(f"총 {len(all_parking_data)}개 주차장 수집 완료")
+    print(f"총 {len(current_gonggo)}개 주차장 발견")
+    print(f"  - 새로운 공고: {new_count}개 🆕")
+    print(f"  - 이미 알림: {duplicate_count}개 ⏭️")
     print(f"{'='*70}")
     
-    # 슬랙 전송
+    # 슬랙 전송 (새로운 것만)
     if slack_webhook_url and len(all_parking_data) > 0:
-        print("\n=== 슬랙 전송 ===")
+        print("\n=== 슬랙 전송 (새로운 공고만) ===")
         
         # 헤더
         header = {
@@ -155,7 +207,7 @@ try:
                     "type": "header",
                     "text": {
                         "type": "plain_text",
-                        "text": "🅿️ 온비드 주차장 검색 결과",
+                        "text": "🆕 온비드 새로운 주차장 경매",
                         "emoji": True
                     }
                 },
@@ -163,8 +215,17 @@ try:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')} (KST)*\n\n총 *{len(all_parking_data)}개* 주차장 발견"
+                        "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')} (KST)*\n\n오늘 새로 등록된 주차장 *{len(all_parking_data)}개* 발견!"
                     }
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"💾 전체 {len(current_gonggo)}개 중 새로운 공고 {len(all_parking_data)}개"
+                        }
+                    ]
                 },
                 {"type": "divider"}
             ]
@@ -191,7 +252,7 @@ try:
                         "type": "header",
                         "text": {
                             "type": "plain_text",
-                            "text": f"🅿️ {idx}. 주차장",
+                            "text": f"🅿️ {idx}. 주차장 경매",
                             "emoji": True
                         }
                     },
@@ -204,7 +265,7 @@ try:
                             },
                             {
                                 "type": "mrkdwn",
-                                "text": f"*⚖️ 회차/사건*\n{parking['회차/사건']}"
+                                "text": f"*⚖️ 회차/사건*\n{parking['회차/사건'] if parking['회차/사건'] else '-'}"
                             }
                         ]
                     },
@@ -244,11 +305,11 @@ try:
                 "fields": [
                     {
                         "type": "mrkdwn",
-                        "text": f"*💰 감정가*\n{parking['감정가정보']}"
+                        "text": f"*💰 감정가*\n{parking['감정가정보'] if parking['감정가정보'] else '-'}"
                     },
                     {
                         "type": "mrkdwn",
-                        "text": f"*🏷️ 상태*\n{parking['상태']}"
+                        "text": f"*🏷️ 상태*\n{parking['상태'] if parking['상태'] else '-'}"
                     }
                 ]
             })
@@ -260,25 +321,51 @@ try:
             print(f"  ✓ {idx}/{len(all_parking_data)} 전송 완료")
         
         print("✓ 슬랙 전송 완료")
+        
+        # 알림 기록 저장 (이전 + 현재)
+        updated_gonggo = previous_gonggo.union(current_gonggo)
+        save_current_gonggo(updated_gonggo)
     
-    elif slack_webhook_url:
+    elif slack_webhook_url and len(all_parking_data) == 0:
+        # 새로운 공고가 없을 때
+        print("\n=== 새로운 공고 없음 ===")
         no_result = {
             "blocks": [
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')} (KST)*\n\n검색된 주차장이 없습니다."
+                        "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')} (KST)*\n\n오늘은 새로운 주차장 경매 공고가 없습니다. ✅"
                     }
                 }
             ]
         }
         requests.post(slack_webhook_url, json=no_result)
+        print("✓ 알림 전송 (새 공고 없음)")
+        
+        # 기록은 업데이트
+        updated_gonggo = previous_gonggo.union(current_gonggo)
+        save_current_gonggo(updated_gonggo)
 
 except Exception as e:
     print(f"\n✗ 오류: {e}")
     import traceback
     traceback.print_exc()
+    
+    # 에러 알림
+    if slack_webhook_url:
+        error_blocks = {
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"⚠️ *온비드 크롤링 오류*\n```{str(e)[:300]}```"
+                    }
+                }
+            ]
+        }
+        requests.post(slack_webhook_url, json=error_blocks)
 
 finally:
     browser.close()
