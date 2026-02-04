@@ -147,8 +147,21 @@ try:
                 # 데이터 형식 구분
                 is_long_format = len(lines) > 3
                 
+                # 정부재산공개/일반공고 제외 필터
+                is_government_property = (
+                    
+                    '공유재산' in row_text or 
+                   
+                    '취소공고' in row_text or
+                    '매각제한재산' in row_text
+                )
+                
+                if is_government_property:
+                    print(f"  ⏭️  행 {idx+1}: 정부재산공개 제외")
+                    continue
+                
                 if is_long_format:
-                    # 일반 경매
+                    # 일반 경매만
                     gonggo_no = lines[0] if len(lines) > 0 else ''
                     mulgun_name = '\n'.join(lines[1:]) if len(lines) > 1 else ''
                     
@@ -161,19 +174,8 @@ try:
                         '상태': texts[4] if len(texts) > 4 else '',
                     }
                 else:
-                    # 일반공고/위수탁
-                    gonggo_no = first_cell
-                    title = texts[1] if len(texts) > 1 else ''
-                    info_text = ' | '.join(texts[2:5]) if len(texts) > 2 else ''
-                    
-                    parking_info = {
-                        '공고번호': gonggo_no,
-                        '물건명': title,
-                        '회차/사건': '',
-                        '입찰일시': texts[3] if len(texts) > 3 else '',
-                        '감정가정보': info_text,
-                        '상태': texts[2] if len(texts) > 2 else '',
-                    }
+                    # 일반공고 형식은 이미 위에서 필터링됨
+                    continue
                 
                 # 중복 체크
                 if gonggo_no:
@@ -182,7 +184,7 @@ try:
                     if gonggo_no not in previous_gonggo:
                         all_parking_data.append(parking_info)
                         new_count += 1
-                        print(f"  🆕 새로운 주차장: {gonggo_no}")
+                        print(f"  🆕 새로운 주차장 경매: {gonggo_no}")
                     else:
                         duplicate_count += 1
                         print(f"  ⏭️  이미 알림: {gonggo_no}")
