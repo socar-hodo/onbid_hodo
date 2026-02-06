@@ -32,113 +32,135 @@ try:
     
     if onbid_id and onbid_pw:
         try:
-            page.click('a:has-text("로그인")', timeout=10000)
+            login_links = page.locator('a').all()
+            for link in login_links:
+                try:
+                    if '로그인' in link.inner_text():
+                        link.click()
+                        break
+                except:
+                    continue
+            
             time.sleep(3)
-            
-            page.fill('input[type="text"]', onbid_id, timeout=10000)
+            page.fill('input[type="text"]', onbid_id)
+            time.sleep(1)
+            page.fill('input[type="password"]', onbid_pw)
             time.sleep(1)
             
-            page.fill('input[type="password"]', onbid_pw, timeout=10000)
-            time.sleep(1)
+            login_buttons = page.locator('button, input[type="submit"], a').all()
+            for btn in login_buttons:
+                try:
+                    if '로그인' in btn.inner_text():
+                        btn.click()
+                        break
+                except:
+                    continue
             
-            page.click('button[type="submit"]', timeout=10000)
             time.sleep(5)
-            
             print("✓ 로그인 완료")
         except Exception as e:
-            print(f"⚠️ 로그인 실패 (계속 진행): {e}")
+            print(f"⚠️ 로그인 실패: {e}")
     
     # 통합검색으로 주차장 검색
-    print("\n=== 통합검색: 주차장 ===")
-    page.goto('https://www.onbid.co.kr', timeout=60000)
-    time.sleep(3)
+    print("\n=== 주차장 검색 ===")
+    search_url = 'https://www.onbid.co.kr/op/dsa/main/main.do?searchWord=%EC%A3%BC%EC%B0%A8%EC%9E%A5'
+    page.goto(search_url, timeout=60000)
+    time.sleep(10)
+    print(f"✓ 검색 URL 이동")
     
-    # 검색창에 주차장 입력
-    search_input = page.locator('input[placeholder*="검색"], input[type="text"]').first
-    search_input.fill('주차장')
-    print("✓ 검색어 입력: 주차장")
-    time.sleep(1)
-    
-    # 검색 버튼 클릭 (엔터 또는 버튼)
-    try:
-        search_input.press('Enter')
-        print("✓ 검색 실행")
-    except:
-        page.click('button:has-text("검색"), a:has-text("검색")')
-        print("✓ 검색 버튼 클릭")
-    
-    time.sleep(5)
-    
-    # 통합검색 탭 클릭
-    print("\n=== 통합검색 탭으로 이동 ===")
-    try:
-        if page.locator('a:has-text("통합검색"), button:has-text("통합검색")').count() > 0:
-            page.click('a:has-text("통합검색"), button:has-text("통합검색")')
-            time.sleep(3)
-            print("✓ 통합검색 탭 클릭")
-    except:
-        print("⚠️ 이미 통합검색 결과 페이지")
-    
-    print(f"✓ 현재 URL: {page.url}")
-    
-    # 입찰물건 탭 클릭
+    # 입찰물건 탭 클릭 (정확한 선택자)
     print("\n=== 입찰물건 탭 클릭 ===")
     try:
-        page.click('a:has-text("입찰물건"), button:has-text("입찰물건")', timeout=10000)
+        # 방법 1: data-tab 속성으로
+        page.click('li[data-tab="tab-3"]', timeout=10000)
+        print("✓ 입찰물건 탭 클릭 (data-tab)")
         time.sleep(5)
-        print("✓ 입찰물건 탭으로 이동")
-    except Exception as e:
-        print(f"⚠️ 입찰물건 탭 클릭 실패: {e}")
+    except:
+        try:
+            # 방법 2: JavaScript 함수 직접 호출
+            page.evaluate("menuChange('catalog')")
+            print("✓ 입찰물건 탭 클릭 (JavaScript)")
+            time.sleep(5)
+        except:
+            try:
+                # 방법 3: w 속성으로
+                page.click('li[w="catalog"]')
+                print("✓ 입찰물건 탭 클릭 (w속성)")
+                time.sleep(5)
+            except Exception as e:
+                print(f"⚠️ 입찰물건 탭 클릭 실패: {e}")
+    
+    print(f"✓ 현재 URL: {page.url}")
     
     # 결과 크롤링
     print("\n=== 데이터 수집 ===")
     
-    # 모든 테이블 행 추출
-    rows = page.locator('tr').all()
-    print(f"✓ {len(rows)}개 행 발견")
+    # JavaScript로 모든 테이블 데이터 추출
+    table_data = page.evaluate("""
+        () => {
+            const tables = document.querySelectorAll('table');
+            const results = [];
+            
+            tables.forEach(table => {
+                const rows = table.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const cells = Array.from(row.querySelectorAll('td'));
+                    if (cells.length >= 3) {
+                        const texts = cells.map(cell => cell.innerText.trim());
+                        const rowText = texts.join(' ');
+                        // 주차장 키워드 확인
+                        if (rowText.includes('주차') || rowText.includes('주차장')) {
+                            results.push(texts);
+                        }
+                    }
+                });
+            });
+            
+            return results;
+        }
+    """)
     
-    for idx, row in enumerate(rows):
+    print(f"✓ {len(table_data)}개 주차장 행 발견")
+    
+    # 데이터 정리
+    for idx, texts in enumerate(table_data):
         try:
-            # 모든 셀 추출
-            cells = row.locator('td').all()
-            if len(cells) < 3:
-                continue
-            
-            texts = []
-            for cell in cells:
-                try:
-                    text = cell.inner_text().strip()
-                    texts.append(text)
-                except:
-                    texts.append('')
-            
             row_text = ' '.join(texts)
             
-            # 주차장 키워드 확인
-            if '주차' in row_text or '주차장' in row_text:
-                # 제외 키워드
-                if any(kw in row_text for kw in ['일반공고', '공유재산', '위수탁', '취소공고']):
-                    continue
-                
-                # 공고번호 추출 (첫 번째 셀)
-                gonggo_no = texts[0].split('\n')[0] if texts[0] else ''
-                
-                # 물건명 추출
-                mulgun_info = texts[0] if texts[0] else ''
-                
-                parking_info = {
-                    '공고번호': gonggo_no,
-                    '물건정보': mulgun_info,
-                    '회차_사건': texts[1] if len(texts) > 1 else '',
-                    '입찰일시': texts[2] if len(texts) > 2 else '',
-                    '감정가': texts[3] if len(texts) > 3 else '',
-                    '상태': texts[4] if len(texts) > 4 else '',
-                }
-                
-                # 공고번호가 있는 것만 저장
-                if gonggo_no and len(gonggo_no) > 5:
-                    all_parking_data.append(parking_info)
-                    print(f"  🅿️ 주차장 발견: {gonggo_no}")
+            # 제외 키워드
+            if any(kw in row_text for kw in ['일반공고', '공유재산', '위수탁', '취소공고']):
+                continue
+            
+            # 공고번호 추출 (숫자-숫자-숫자 형태)
+            gonggo_no = ''
+            for text in texts:
+                if '-' in text and len([c for c in text if c.isdigit()]) >= 8:
+                    gonggo_no = text.split('\n')[0].strip()
+                    break
+            
+            if not gonggo_no and texts[0]:
+                gonggo_no = texts[0].split('\n')[0].strip()
+            
+            # 물건명 추출
+            mulgun_name = ''
+            for text in texts:
+                if '주차장' in text or '주차' in text:
+                    mulgun_name = text
+                    break
+            
+            parking_info = {
+                '공고번호': gonggo_no,
+                '물건명': mulgun_name,
+                '컬럼1': texts[0] if len(texts) > 0 else '',
+                '컬럼2': texts[1] if len(texts) > 1 else '',
+                '컬럼3': texts[2] if len(texts) > 2 else '',
+                '컬럼4': texts[3] if len(texts) > 3 else '',
+                '컬럼5': texts[4] if len(texts) > 4 else '',
+            }
+            
+            if gonggo_no and len(gonggo_no) > 5:
+                all_parking_data.append(parking_info)
+                print(f"  🅿️ {gonggo_no}")
         
         except Exception as e:
             continue
@@ -147,11 +169,17 @@ try:
     print(f"총 {len(all_parking_data)}개 주차장 발견")
     print(f"{'='*70}")
     
+    # 샘플 데이터 출력
+    if len(all_parking_data) > 0:
+        print("\n=== 첫 번째 데이터 샘플 ===")
+        sample = all_parking_data[0]
+        for key, value in sample.items():
+            print(f"{key}: {value[:100] if value else '-'}")
+    
     # 슬랙 전송
     if slack_webhook_url and len(all_parking_data) > 0:
         print("\n=== 슬랙 전송 ===")
         
-        # 헤더
         header = {
             "blocks": [
                 {
@@ -176,16 +204,10 @@ try:
         requests.post(slack_webhook_url, json=header)
         time.sleep(1)
         
-        # 각 주차장 정보
         for idx, parking in enumerate(all_parking_data[:20], 1):
-            # 물건정보에서 위치와 면적 추출
-            lines = parking['물건정보'].split('\n')
-            location = lines[1] if len(lines) > 1 else ''
-            area = ''
-            for line in lines:
-                if '㎡' in line or 'm²' in line:
-                    area = line
-                    break
+            # 물건명에서 위치 정보 추출
+            location_lines = parking['물건명'].split('\n')
+            location = location_lines[0] if len(location_lines) > 0 else ''
             
             blocks = {
                 "blocks": [
@@ -199,70 +221,25 @@ try:
                     },
                     {
                         "type": "section",
-                        "fields": [
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*📋 공고번호*\n`{parking['공고번호']}`"
-                            },
-                            {
-                                "type": "mrkdwn",
-                                "text": f"*⚖️ 회차/사건*\n{parking['회차_사건'] or '-'}"
-                            }
-                        ]
-                    }
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*📋 공고번호*\n`{parking['공고번호']}`"
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*📍 물건명*\n{location[:300]}"
+                        }
+                    },
+                    {"type": "divider"}
                 ]
             }
             
-            # 위치 정보
-            if location:
-                blocks["blocks"].append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*📍 소재지*\n{location[:200]}"
-                    }
-                })
-            
-            # 면적 정보
-            if area:
-                blocks["blocks"].append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*📏 면적*\n{area}"
-                    }
-                })
-            
-            # 입찰일시
-            if parking['입찰일시']:
-                blocks["blocks"].append({
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*📅 입찰일시*\n{parking['입찰일시']}"
-                    }
-                })
-            
-            # 감정가와 상태
-            blocks["blocks"].append({
-                "type": "section",
-                "fields": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*💰 감정가*\n{parking['감정가'] or '-'}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*🏷️ 상태*\n{parking['상태'] or '-'}"
-                    }
-                ]
-            })
-            
-            blocks["blocks"].append({"type": "divider"})
-            
             requests.post(slack_webhook_url, json=blocks)
             time.sleep(1)
-            print(f"  ✓ {idx}/{len(all_parking_data)} 전송 완료")
+            print(f"  ✓ {idx}/{len(all_parking_data)} 전송")
         
         print("✓ 슬랙 전송 완료")
     
@@ -274,13 +251,12 @@ try:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')} (KST)*\n\n오늘은 주차장 경매 공고가 없습니다. ✅"
+                        "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')}*\n\n오늘은 주차장 경매가 없습니다."
                     }
                 }
             ]
         }
         requests.post(slack_webhook_url, json=no_result)
-        print("✓ 알림 전송")
 
 except Exception as e:
     print(f"\n✗ 오류: {e}")
@@ -294,7 +270,7 @@ except Exception as e:
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"⚠️ *온비드 크롤링 오류*\n```{str(e)[:300]}```"
+                        "text": f"⚠️ *크롤링 오류*\n```{str(e)[:300]}```"
                     }
                 }
             ]
@@ -302,6 +278,12 @@ except Exception as e:
         requests.post(slack_webhook_url, json=error_blocks)
 
 finally:
+    try:
+        page.screenshot(path='onbid_result.png', full_page=True)
+        print("\n✓ 스크린샷: onbid_result.png")
+    except:
+        pass
+    
     browser.close()
     playwright.stop()
     
