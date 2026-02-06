@@ -71,40 +71,43 @@ try:
     time.sleep(5)
     print("✓ 홈페이지 로딩")
     
-    # 4. 통합검색 (JavaScript 함수 사용)
+    # 4. 통합검색창에서 주차장 검색
     print("\n=== 4. 통합검색창에서 '주차장' 검색 ===")
     
-    # 검색어 입력 및 검색 실행
     search_result = page.evaluate("""
         () => {
-            // 검색 input 찾기
-            const searchInput = document.querySelector('input[name="searchWord"]');
-            if (!searchInput) return { success: false, error: 'searchInput not found' };
+            // id="query"로 검색창 찾기
+            const searchInput = document.getElementById('query');
+            if (!searchInput) {
+                return { success: false, error: 'query input not found' };
+            }
             
             // 검색어 입력
             searchInput.value = '주차장';
+            console.log('검색어 입력:', searchInput.value);
             
-            // menuChange('total') 함수 호출
-            if (typeof menuChange !== 'undefined') {
-                menuChange('total');
-                return { success: true, method: 'menuChange' };
-            }
-            
-            // form submit
-            const form = document.getElementById('searchMainForm');
-            if (form) {
-                form.submit();
-                return { success: true, method: 'form.submit' };
-            }
-            
-            // submit 버튼 클릭
+            // 검색 버튼 클릭 (id="_submit")
             const submitBtn = document.getElementById('_submit');
             if (submitBtn) {
                 submitBtn.click();
-                return { success: true, method: 'button.click' };
+                return { success: true, method: 'submit button' };
             }
             
-            return { success: false, error: 'no method found' };
+            // 또는 sch_btn 클래스로 찾기
+            const schBtn = document.querySelector('.sch_btn');
+            if (schBtn) {
+                schBtn.click();
+                return { success: true, method: 'sch_btn class' };
+            }
+            
+            // form submit
+            const form = searchInput.closest('form');
+            if (form) {
+                form.submit();
+                return { success: true, method: 'form submit' };
+            }
+            
+            return { success: false, error: 'submit button not found' };
         }
     """)
     
@@ -123,61 +126,70 @@ try:
     
     tab_clicked = page.evaluate("""
         () => {
-            // 입찰물건 탭 찾기
-            const allElements = Array.from(document.querySelectorAll('a, li, button, div, span'));
+            // 모든 요소에서 "입찰물건" 텍스트 찾기
+            const allElements = Array.from(document.querySelectorAll('*'));
             
             for (let elem of allElements) {
                 const text = elem.textContent?.trim();
                 
-                // 정확히 "입찰물건" 텍스트 매칭
+                // "입찰물건" 정확히 매칭
                 if (text === '입찰물건') {
-                    console.log('입찰물건 탭 발견:', elem.outerHTML.substring(0, 100));
+                    console.log('입찰물건 발견:', elem.tagName, elem.className);
                     
-                    // a 태그면 직접 클릭
+                    // a 태그면 클릭
                     if (elem.tagName === 'A') {
                         elem.click();
-                        return { success: true, method: 'a-tag' };
+                        return { success: true, method: 'a-tag', tag: elem.tagName };
+                    }
+                    
+                    // span 안에 a가 있는 경우
+                    if (elem.tagName === 'SPAN') {
+                        const parent = elem.parentElement;
+                        if (parent && parent.tagName === 'A') {
+                            parent.click();
+                            return { success: true, method: 'span>parent-a', tag: parent.tagName };
+                        }
                     }
                     
                     // li 안의 a 찾기
                     const link = elem.querySelector('a');
                     if (link) {
                         link.click();
-                        return { success: true, method: 'li>a' };
+                        return { success: true, method: 'elem>a', tag: elem.tagName };
                     }
                     
-                    // 부모가 li이고 그 안에 a가 있는 경우
-                    if (elem.parentElement && elem.parentElement.tagName === 'LI') {
-                        const parentLink = elem.parentElement.querySelector('a');
+                    // 부모 찾기
+                    let current = elem;
+                    for (let i = 0; i < 5; i++) {
+                        current = current.parentElement;
+                        if (!current) break;
+                        
+                        if (current.tagName === 'A') {
+                            current.click();
+                            return { success: true, method: 'ancestor-a', tag: current.tagName };
+                        }
+                        
+                        const parentLink = current.querySelector('a');
                         if (parentLink) {
                             parentLink.click();
-                            return { success: true, method: 'parent>a' };
+                            return { success: true, method: 'ancestor>a', tag: current.tagName };
                         }
                     }
                     
+                    // 직접 클릭 시도
                     elem.click();
-                    return { success: true, method: 'direct' };
+                    return { success: true, method: 'direct-click', tag: elem.tagName };
                 }
             }
             
-            // data-tab="tab-3" 찾기
-            const tab3 = document.querySelector('li[data-tab="tab-3"] a');
+            // data-tab으로 찾기
+            const tab3 = document.querySelector('[data-tab="tab-3"]');
             if (tab3) {
-                tab3.click();
-                return { success: true, method: 'data-tab-3' };
-            }
-            
-            // w="catalog" 찾기
-            const catalog = document.querySelector('li[w="catalog"] a');
-            if (catalog) {
-                catalog.click();
-                return { success: true, method: 'w-catalog' };
-            }
-            
-            // menuChange 함수 호출
-            if (typeof menuChange !== 'undefined') {
-                menuChange('catalog');
-                return { success: true, method: 'menuChange-catalog' };
+                const link = tab3.querySelector('a');
+                if (link) {
+                    link.click();
+                    return { success: true, method: 'data-tab-3' };
+                }
             }
             
             return { success: false, error: 'tab not found' };
@@ -279,14 +291,8 @@ try:
         
         header = {
             "blocks": [
-                {
-                    "type": "header",
-                    "text": {"type": "plain_text", "text": "🆕 온비드 주차장 경매", "emoji": True}
-                },
-                {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')}*\n\n주차장 *{len(all_parking_data)}개* 발견!"}
-                },
+                {"type": "header", "text": {"type": "plain_text", "text": "🆕 온비드 주차장 경매", "emoji": True}},
+                {"type": "section", "text": {"type": "mrkdwn", "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')}*\n\n주차장 *{len(all_parking_data)}개* 발견!"}},
                 {"type": "divider"}
             ]
         }
