@@ -35,7 +35,6 @@ try:
     print("\n=== 2. 로그인 ===")
     if onbid_id and onbid_pw:
         try:
-            # 로그인 링크 클릭
             login_links = page.locator('a').all()
             for link in login_links:
                 try:
@@ -47,16 +46,11 @@ try:
                     continue
             
             time.sleep(3)
-            
-            # 아이디 입력
             page.fill('input[type="text"]', onbid_id)
             time.sleep(1)
-            
-            # 비밀번호 입력
             page.fill('input[type="password"]', onbid_pw)
             time.sleep(1)
             
-            # 로그인 버튼 클릭
             login_buttons = page.locator('button, input[type="submit"], a').all()
             for btn in login_buttons:
                 try:
@@ -74,126 +68,135 @@ try:
     # 3. 홈페이지로 돌아가기
     print("\n=== 3. 홈페이지로 돌아가기 ===")
     page.goto('https://www.onbid.co.kr', timeout=60000)
-    time.sleep(3)
+    time.sleep(5)
     print("✓ 홈페이지 로딩")
     
-    # 4. 통합검색창에서 주차장 검색
+    # 4. 통합검색 (JavaScript 함수 사용)
     print("\n=== 4. 통합검색창에서 '주차장' 검색 ===")
-    try:
-        # 검색창 찾기 (여러 방법 시도)
-        search_input = None
-        
-        # 방법 1: placeholder로 찾기
-        inputs = page.locator('input[placeholder*="검색"]').all()
-        if len(inputs) > 0:
-            search_input = inputs[0]
-        
-        # 방법 2: 모든 text input 중에서
-        if not search_input:
-            all_inputs = page.locator('input[type="text"]').all()
-            for inp in all_inputs:
-                try:
-                    placeholder = inp.get_attribute('placeholder')
-                    if placeholder and '검색' in placeholder:
-                        search_input = inp
-                        break
-                except:
-                    continue
-        
-        if search_input:
-            search_input.fill('주차장')
-            print("✓ 검색어 입력: 주차장")
-            time.sleep(1)
-            
-            # 엔터 또는 검색 버튼 클릭
-            try:
-                search_input.press('Enter')
-                print("✓ 검색 실행 (Enter)")
-            except:
-                # 검색 버튼 찾기
-                search_buttons = page.locator('button, a').all()
-                for btn in search_buttons:
-                    try:
-                        if '검색' in btn.inner_text() or 'search' in btn.get_attribute('class') or '':
-                            btn.click()
-                            print("✓ 검색 실행 (버튼)")
-                            break
-                    except:
-                        continue
-            
-            time.sleep(10)
-            print(f"✓ 검색 완료, URL: {page.url}")
-        else:
-            print("⚠️ 검색창을 찾을 수 없음")
     
-    except Exception as e:
-        print(f"⚠️ 검색 실패: {e}")
+    # 검색어 입력 및 검색 실행
+    search_result = page.evaluate("""
+        () => {
+            // 검색 input 찾기
+            const searchInput = document.querySelector('input[name="searchWord"]');
+            if (!searchInput) return { success: false, error: 'searchInput not found' };
+            
+            // 검색어 입력
+            searchInput.value = '주차장';
+            
+            // menuChange('total') 함수 호출
+            if (typeof menuChange !== 'undefined') {
+                menuChange('total');
+                return { success: true, method: 'menuChange' };
+            }
+            
+            // form submit
+            const form = document.getElementById('searchMainForm');
+            if (form) {
+                form.submit();
+                return { success: true, method: 'form.submit' };
+            }
+            
+            // submit 버튼 클릭
+            const submitBtn = document.getElementById('_submit');
+            if (submitBtn) {
+                submitBtn.click();
+                return { success: true, method: 'button.click' };
+            }
+            
+            return { success: false, error: 'no method found' };
+        }
+    """)
+    
+    print(f"검색 결과: {search_result}")
+    
+    if search_result.get('success'):
+        print(f"✓ 검색 실행: {search_result.get('method')}")
+        time.sleep(10)
+    else:
+        print(f"⚠️ 검색 실패: {search_result.get('error')}")
+    
+    print(f"✓ 검색 후 URL: {page.url}")
     
     # 5. 입찰물건 탭 클릭
     print("\n=== 5. 입찰물건 탭 클릭 ===")
     
-    # 탭 존재 확인 및 클릭
     tab_clicked = page.evaluate("""
         () => {
             // 입찰물건 탭 찾기
-            const allElements = Array.from(document.querySelectorAll('li, a, button, div, span'));
+            const allElements = Array.from(document.querySelectorAll('a, li, button, div, span'));
             
             for (let elem of allElements) {
                 const text = elem.textContent?.trim();
+                
+                // 정확히 "입찰물건" 텍스트 매칭
                 if (text === '입찰물건') {
-                    console.log('입찰물건 탭 발견:', elem.tagName);
+                    console.log('입찰물건 탭 발견:', elem.outerHTML.substring(0, 100));
                     
-                    // 클릭 가능한 요소 찾기
+                    // a 태그면 직접 클릭
                     if (elem.tagName === 'A') {
                         elem.click();
-                        return 'clicked-a';
+                        return { success: true, method: 'a-tag' };
                     }
                     
                     // li 안의 a 찾기
                     const link = elem.querySelector('a');
                     if (link) {
                         link.click();
-                        return 'clicked-link';
+                        return { success: true, method: 'li>a' };
                     }
                     
-                    // 그냥 클릭
+                    // 부모가 li이고 그 안에 a가 있는 경우
+                    if (elem.parentElement && elem.parentElement.tagName === 'LI') {
+                        const parentLink = elem.parentElement.querySelector('a');
+                        if (parentLink) {
+                            parentLink.click();
+                            return { success: true, method: 'parent>a' };
+                        }
+                    }
+                    
                     elem.click();
-                    return 'clicked-elem';
+                    return { success: true, method: 'direct' };
                 }
             }
             
-            // data-tab으로 찾기
-            const tab3 = document.querySelector('li[data-tab="tab-3"]');
+            // data-tab="tab-3" 찾기
+            const tab3 = document.querySelector('li[data-tab="tab-3"] a');
             if (tab3) {
-                const link = tab3.querySelector('a');
-                if (link) link.click();
-                return 'clicked-tab-3';
+                tab3.click();
+                return { success: true, method: 'data-tab-3' };
             }
             
-            // w 속성으로 찾기
-            const catalog = document.querySelector('li[w="catalog"]');
+            // w="catalog" 찾기
+            const catalog = document.querySelector('li[w="catalog"] a');
             if (catalog) {
-                const link = catalog.querySelector('a');
-                if (link) link.click();
-                return 'clicked-catalog';
+                catalog.click();
+                return { success: true, method: 'w-catalog' };
             }
             
-            return false;
+            // menuChange 함수 호출
+            if (typeof menuChange !== 'undefined') {
+                menuChange('catalog');
+                return { success: true, method: 'menuChange-catalog' };
+            }
+            
+            return { success: false, error: 'tab not found' };
         }
     """)
     
-    if tab_clicked:
-        print(f"✓ 입찰물건 탭 클릭: {tab_clicked}")
+    print(f"탭 클릭 결과: {tab_clicked}")
+    
+    if tab_clicked.get('success'):
+        print(f"✓ 입찰물건 탭 클릭: {tab_clicked.get('method')}")
         time.sleep(10)
     else:
-        print("⚠️ 입찰물건 탭을 찾을 수 없음")
+        print(f"⚠️ 입찰물건 탭 클릭 실패: {tab_clicked.get('error')}")
     
     print(f"✓ 현재 URL: {page.url}")
     
     # 6. 주차장 물건 크롤링
     print("\n=== 6. 주차장 물건 크롤링 ===")
     
-    # 페이지에 주차장 텍스트 있는지 확인
     page_text = page.evaluate("() => document.body.innerText")
     has_parking = '주차' in page_text or '주차장' in page_text
     print(f"페이지에 '주차장' 텍스트: {'✓' if has_parking else '✗'}")
@@ -204,6 +207,8 @@ try:
             const results = [];
             const tables = document.querySelectorAll('table');
             
+            console.log('테이블 개수:', tables.length);
+            
             tables.forEach((table) => {
                 const rows = table.querySelectorAll('tbody tr, tr');
                 
@@ -213,14 +218,15 @@ try:
                         const texts = cells.map(cell => cell.innerText.trim());
                         const rowText = texts.join(' ');
                         
-                        // 주차장 키워드 확인
                         if (rowText.includes('주차') || rowText.includes('주차장')) {
+                            console.log('주차장 발견:', rowText.substring(0, 50));
                             results.push(texts);
                         }
                     }
                 });
             });
             
+            console.log('총 결과:', results.length);
             return results;
         }
     """)
@@ -234,7 +240,6 @@ try:
             
             # 제외 키워드
             if any(kw in row_text for kw in ['일반공고', '공유재산', '위수탁', '취소공고']):
-                print(f"  ⏭️  제외: {texts[0][:30]}")
                 continue
             
             # 공고번호 추출
@@ -268,33 +273,19 @@ try:
     print(f"총 {len(all_parking_data)}개 주차장 발견")
     print(f"{'='*70}")
     
-    # 샘플 출력
-    if len(all_parking_data) > 0:
-        print("\n=== 첫 번째 데이터 ===")
-        sample = all_parking_data[0]
-        for key, value in sample.items():
-            print(f"{key}: {value[:100] if value else '-'}")
-    
-    # 7. 슬랙 전송
+    # 슬랙 전송
     if slack_webhook_url and len(all_parking_data) > 0:
-        print("\n=== 7. 슬랙 전송 ===")
+        print("\n=== 슬랙 전송 ===")
         
         header = {
             "blocks": [
                 {
                     "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🆕 온비드 주차장 경매",
-                        "emoji": True
-                    }
+                    "text": {"type": "plain_text", "text": "🆕 온비드 주차장 경매", "emoji": True}
                 },
                 {
                     "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')} (KST)*\n\n주차장 *{len(all_parking_data)}개* 발견!"
-                    }
+                    "text": {"type": "mrkdwn", "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')}*\n\n주차장 *{len(all_parking_data)}개* 발견!"}
                 },
                 {"type": "divider"}
             ]
@@ -309,36 +300,17 @@ try:
             
             blocks = {
                 "blocks": [
-                    {
-                        "type": "header",
-                        "text": {
-                            "type": "plain_text",
-                            "text": f"🅿️ {idx}. 주차장 경매",
-                            "emoji": True
-                        }
-                    },
-                    {
-                        "type": "section",
-                        "fields": [
-                            {"type": "mrkdwn", "text": f"*공고번호*\n`{parking['공고번호']}`"},
-                            {"type": "mrkdwn", "text": f"*회차/사건*\n{parking['회차사건'] or '-'}"}
-                        ]
-                    },
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"*소재지*\n{location[:300]}"}
-                    },
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"*입찰일시*\n{parking['입찰일시'] or '-'}"}
-                    },
-                    {
-                        "type": "section",
-                        "fields": [
-                            {"type": "mrkdwn", "text": f"*감정가*\n{parking['감정가'] or '-'}"},
-                            {"type": "mrkdwn", "text": f"*상태*\n{parking['상태'] or '-'}"}
-                        ]
-                    },
+                    {"type": "header", "text": {"type": "plain_text", "text": f"🅿️ {idx}. 주차장", "emoji": True}},
+                    {"type": "section", "fields": [
+                        {"type": "mrkdwn", "text": f"*공고번호*\n`{parking['공고번호']}`"},
+                        {"type": "mrkdwn", "text": f"*회차/사건*\n{parking['회차사건'] or '-'}"}
+                    ]},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*소재지*\n{location[:300]}"}},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*입찰일시*\n{parking['입찰일시'] or '-'}"}},
+                    {"type": "section", "fields": [
+                        {"type": "mrkdwn", "text": f"*감정가*\n{parking['감정가'] or '-'}"},
+                        {"type": "mrkdwn", "text": f"*상태*\n{parking['상태'] or '-'}"}
+                    ]},
                     {"type": "divider"}
                 ]
             }
@@ -349,15 +321,7 @@ try:
         print("✓ 슬랙 전송 완료")
     
     elif slack_webhook_url:
-        no_result = {
-            "blocks": [{
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')}*\n\n오늘은 주차장 경매가 없습니다."
-                }
-            }]
-        }
+        no_result = {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": f"📅 *{datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M')}*\n\n주차장 경매가 없습니다."}}]}
         requests.post(slack_webhook_url, json=no_result)
 
 except Exception as e:
@@ -366,12 +330,7 @@ except Exception as e:
     traceback.print_exc()
     
     if slack_webhook_url:
-        error_blocks = {
-            "blocks": [{
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"⚠️ *크롤링 오류*\n```{str(e)[:300]}```"}
-            }]
-        }
+        error_blocks = {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": f"⚠️ *오류*\n```{str(e)[:300]}```"}}]}
         requests.post(slack_webhook_url, json=error_blocks)
 
 finally:
