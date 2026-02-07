@@ -242,7 +242,120 @@ try:
             print(f"텍스트 샘플 (주차장 포함):")
             print(page_text[max(0, idx-100):idx+200])
     
-    # JavaScript로 테이블 데이터 추출 (링크 URL 변환 포함)
+    # 7. 링크 디버깅 - 실제 링크 정보 수집
+    print("\n=== 7. 링크 디버깅 - 실제 링크 정보 확인 ===")
+    
+    actual_links = page.evaluate("""() => {
+        const results = [];
+        const tables = document.querySelectorAll('table');
+        
+        tables.forEach((table, tableIdx) => {
+            const rows = table.querySelectorAll('tbody tr, tr');
+            
+            rows.forEach((row, rowIdx) => {
+                const rowText = row.innerText || '';
+                
+                if (rowText.includes('주차') || rowText.includes('주차장')) {
+                    const linkElem = row.querySelector('a[href], a[onclick], td a, div a');
+                    if (linkElem) {
+                        results.push({
+                            href: linkElem.getAttribute('href'),
+                            onclick: linkElem.getAttribute('onclick'),
+                            outerHTML: linkElem.outerHTML.slice(0, 200),
+                            text: rowText.slice(0, 100)
+                        });
+                    }
+                }
+            });
+        });
+        
+        return results.slice(0, 5);
+    }""")
+    
+    print(f"\n실제 링크 정보 ({len(actual_links)}개 샘플):")
+    for idx, link_info in enumerate(actual_links):
+        print(f"\n[샘플 {idx+1}]")
+        print(f"  href: {link_info.get('href')}")
+        print(f"  onclick: {link_info.get('onclick')}")
+        print(f"  HTML: {link_info.get('outerHTML')}")
+        print(f"  텍스트: {link_info.get('text')}")
+    
+    # 8. 첫 번째 링크 클릭 테스트
+    print("\n=== 8. 첫 번째 링크 클릭 테스트 ===")
+    
+    if len(actual_links) > 0:
+        # 새 페이지 이벤트 리스너 설정
+        new_page_promise = None
+        
+        def handle_popup(popup):
+            print(f"  → 팝업 열림: {popup.url}")
+        
+        browser.contexts[0].on("page", handle_popup)
+        
+        # 링크 클릭
+        clicked_result = page.evaluate("""() => {
+            const tables = document.querySelectorAll('table');
+            
+            for (let table of tables) {
+                const rows = table.querySelectorAll('tbody tr, tr');
+                
+                for (let row of rows) {
+                    const rowText = row.innerText || '';
+                    
+                    if (rowText.includes('주차') || rowText.includes('주차장')) {
+                        const linkElem = row.querySelector('a[href], a[onclick]');
+                        if (linkElem) {
+                            linkElem.click();
+                            return {
+                                clicked: true,
+                                href: linkElem.getAttribute('href'),
+                                onclick: linkElem.getAttribute('onclick')
+                            };
+                        }
+                    }
+                }
+            }
+            
+            return { clicked: false };
+        }""")
+        
+        print(f"클릭 결과: {json.dumps(clicked_result, ensure_ascii=False)}")
+        
+        if clicked_result.get('clicked'):
+            time.sleep(5)
+            
+            # 열린 모든 페이지 확인
+            all_pages = browser.contexts[0].pages
+            print(f"\n열린 페이지 수: {len(all_pages)}")
+            
+            for page_idx, p in enumerate(all_pages):
+                print(f"  페이지 {page_idx}: {p.url}")
+            
+            # 새 페이지가 열렸다면
+            if len(all_pages) > 1:
+                detail_page = all_pages[-1]
+                detail_url = detail_page.url
+                detail_title = detail_page.evaluate("() => document.title")
+                
+                print(f"\n✓ 상세 페이지 발견!")
+                print(f"  URL: {detail_url}")
+                print(f"  제목: {detail_title}")
+                
+                # URL 패턴 분석
+                if '?' in detail_url:
+                    base_url = detail_url.split('?')[0]
+                    params = detail_url.split('?')[1]
+                    print(f"  베이스 URL: {base_url}")
+                    print(f"  파라미터: {params}")
+                
+                detail_page.close()
+            else:
+                print("⚠️ 새 페이지가 열리지 않음 - 같은 페이지에서 전환된 것으로 보임")
+                print(f"  현재 URL: {page.url}")
+    
+    # 9. JavaScript로 테이블 데이터 추출
+    print("\n=== 9. 주차장 데이터 크롤링 ===")
+    
     table_data = page.evaluate("""() => {
         const results = [];
         
@@ -263,11 +376,14 @@ try:
                         console.log('테이블', tableIdx, '행', rowIdx, '주차장 발견');
                         
                         let link = '';
+                        let rawLink = '';
                         
                         const linkElem = row.querySelector('a[href], a[onclick], [onclick*="fn_selectDetail"]');
                         if (linkElem) {
                             const href = linkElem.getAttribute('href') || '';
                             const onclick = linkElem.getAttribute('onclick') || '';
+                            
+                            rawLink = href || onclick;
                             
                             const searchText = href + ' ' + onclick;
                             const match = searchText.match(/fn_selectDetail\\(['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\)/);
@@ -295,54 +411,13 @@ try:
                         results.push({
                             texts: texts,
                             link: link,
+                            rawLink: rawLink,
                             imgSrc: imgSrc,
                             rowText: rowText
                         });
                     }
                 }
             });
-        });
-        
-        const listItems = document.querySelectorAll('div[class*="list"] > div, ul[class*="list"] > li, article');
-        console.log('리스트 아이템 개수:', listItems.length);
-        
-        listItems.forEach((item, idx) => {
-            const text = item.innerText || '';
-            if ((text.includes('주차') || text.includes('주차장')) && text.length > 20 && text.length < 2000) {
-                console.log('리스트', idx, '주차장 발견');
-                
-                let link = '';
-                
-                const linkElem = item.querySelector('a[href], a[onclick], [onclick*="fn_selectDetail"]');
-                if (linkElem) {
-                    const href = linkElem.getAttribute('href') || '';
-                    const onclick = linkElem.getAttribute('onclick') || '';
-                    
-                    const searchText = href + ' ' + onclick;
-                    const match = searchText.match(/fn_selectDetail\\(['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\)/);
-                    
-                    if (match) {
-                        link = 'https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateView.do?' +
-                               'cltrNo=' + match[1] +
-                               '&cltrHstrNo=' + match[2] +
-                               '&plnmNo=' + match[3] +
-                               '&pbctNo=' + match[4] +
-                               '&scrnGrpCd=' + match[5] +
-                               '&pbctCdtnNo=' + match[6];
-                    } else if (href && !href.includes('javascript:')) {
-                        link = href;
-                    }
-                }
-                
-                const lines = text.split('\\n').map(line => line.trim()).filter(line => line);
-                
-                results.push({
-                    texts: lines,
-                    link: link,
-                    imgSrc: '',
-                    rowText: text
-                });
-            }
         });
         
         console.log('총 주차장 발견:', results.length);
@@ -416,13 +491,15 @@ try:
                 '물건상태': texts[3] if len(texts) > 3 else '',
                 '조회수': texts[4] if len(texts) > 4 else '',
                 '공고링크': item['link'],
+                '원본링크': item['rawLink'],
                 '이미지': item['imgSrc']
             }
             
             all_parking_data.append(parking_info)
             print(f"  ✓ 추가: {parking_info['공고번호']} - {parking_info['물건명주소'][:50]}")
+            print(f"     원본: {parking_info['원본링크'][:80]}")
             if parking_info['공고링크']:
-                print(f"     링크: {parking_info['공고링크'][:80]}")
+                print(f"     변환: {parking_info['공고링크'][:80]}")
         
         except Exception as e:
             print(f"  ✗ 파싱 오류: {e}")
@@ -440,9 +517,9 @@ try:
             display_value = value[:100] if isinstance(value, str) and len(value) > 100 else value
             print(f"{key}: {display_value}")
     
-    # 7. 슬랙 전송
+    # 10. 슬랙 전송
     if slack_webhook_url and len(all_parking_data) > 0:
-        print("\n=== 7. 슬랙 전송 ===")
+        print("\n=== 10. 슬랙 전송 ===")
         
         header = {
             "blocks": [
@@ -485,7 +562,7 @@ try:
                 ]
             })
             
-            if parking['공고링크']:
+            if parking['공고링크'] and not parking['공고링크'].startswith('javascript:'):
                 blocks["blocks"].append({
                     "type": "section",
                     "text": {"type": "mrkdwn", "text": f"🔗 <{parking['공고링크']}|공고 상세보기>"}
