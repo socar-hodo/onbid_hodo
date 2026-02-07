@@ -8,13 +8,24 @@ from datetime import datetime, timedelta, timezone
 # 한국 시간
 KST = timezone(timedelta(hours=9))
 
+# 평일 체크 (월~금만 실행)
+current_time = datetime.now(KST)
+weekday = current_time.weekday()  # 0=월요일, 6=일요일
+
+if weekday >= 5:  # 5=토요일, 6=일요일
+    print("=" * 70)
+    print(f"주말({current_time.strftime('%A')})에는 실행하지 않습니다.")
+    print(f"실행 시간(KST): {current_time.strftime('%Y년 %m월 %d일 %H:%M:%S')}")
+    print("=" * 70)
+    exit(0)
+
 slack_webhook_url = os.environ.get('SLACK_WEBHOOK_URL')
 onbid_id = os.environ.get('ONBID_ID', '')
 onbid_pw = os.environ.get('ONBID_PW', '')
 
 print("=" * 70)
 print(f"온비드 주차장 물건 알리미")
-print(f"실행 시간(KST): {datetime.now(KST).strftime('%Y년 %m월 %d일 %H:%M:%S')}")
+print(f"실행 시간(KST): {current_time.strftime('%Y년 %m월 %d일 %H:%M:%S')}")
 print("=" * 70)
 
 # Playwright 시작
@@ -503,12 +514,23 @@ try:
         time.sleep(1)
         
         for idx, parking in enumerate(all_parking_data[:20], 1):
+            # 소재지명을 제목으로 사용 (최대 50자)
+            location_title = parking['물건명주소'][:50]
+            if len(parking['물건명주소']) > 50:
+                location_title += "..."
+            
             blocks = {
                 "blocks": [
-                    {"type": "header", "text": {"type": "plain_text", "text": f"🅿️ {idx}. {parking['공고번호']}", "emoji": True}},
-                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*📍 소재지*\n{parking['물건명주소'][:300]}"}},
+                    {"type": "header", "text": {"type": "plain_text", "text": f"🅿️ {idx}. {location_title}", "emoji": True}},
+                    {"type": "section", "text": {"type": "mrkdwn", "text": f"*📍 전체 소재지*\n{parking['물건명주소']}"}},
                 ]
             }
+            
+            # 공고번호 추가
+            blocks["blocks"].append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*🔢 공고번호*\n{parking['공고번호']}"}
+            })
             
             if parking['면적']:
                 blocks["blocks"].append({
