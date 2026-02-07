@@ -145,149 +145,113 @@ try:
     print(f"\n페이지 텍스트 샘플:")
     print(page_structure['bodyText'][:500])
     
-    # 5. 물건명 검색창에 주차장 입력
-    print("\n=== 5. 물건명 검색: 주차장 ===")
+# 5. 물건명 검색창에 주차장 입력 부분을 다음으로 교체:
+
+print("\n=== 5. 물건명 검색: 주차장 ===")
+
+# searchCltrNm을 사용한 검색
+search_result = page.evaluate("""() => {
+    // searchCltrNm ID로 직접 찾기
+    const searchInput = document.getElementById('searchCltrNm');
     
-    # iframe 확인
-    iframe_count = len(page.frames)
-    print(f"iframe 개수: {iframe_count}")
+    if (!searchInput) {
+        return {
+            success: false,
+            error: 'searchCltrNm not found'
+        };
+    }
     
-    search_result = {'success': False}
+    console.log('검색창 발견:', searchInput.id, searchInput.name);
     
-    if iframe_count > 1:
-        print("iframe 내부 확인 중...")
-        for idx, frame in enumerate(page.frames):
-            try:
-                frame_url = frame.url
-                print(f"  iframe {idx}: {frame_url}")
-                
-                # iframe 내부에서 searchCtrNm 찾기
-                has_search = frame.evaluate("""() => {
-                    return !!document.getElementById('searchCtrNm');
-                }""")
-                
-                if has_search:
-                    print(f"  → searchCtrNm 발견!")
-                    
-                    # iframe 내부에서 검색 실행
-                    search_result = frame.evaluate("""() => {
-                        const searchInput = document.getElementById('searchCtrNm');
-                        if (!searchInput) return { success: false, error: 'not found in iframe' };
-                        
-                        searchInput.value = '주차장';
-                        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-                        
-                        let searchBtn = document.getElementById('searchBtn');
-                        if (!searchBtn) {
-                            const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
-                            for (let btn of buttons) {
-                                const text = (btn.innerText || btn.value || '').trim();
-                                if (text.includes('검색') || text.includes('조회')) {
-                                    searchBtn = btn;
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        if (searchBtn) {
-                            searchBtn.click();
-                            return { success: true, method: 'button in iframe', inputId: searchInput.id };
-                        }
-                        
-                        const form = searchInput.closest('form');
-                        if (form) {
-                            form.submit();
-                            return { success: true, method: 'form in iframe' };
-                        }
-                        
-                        return { success: false, error: 'no submit method in iframe' };
-                    }""")
-                    
-                    print(f"iframe 검색 결과: {json.dumps(search_result, ensure_ascii=False)}")
-                    
-                    if search_result.get('success'):
-                        print(f"✓ iframe에서 검색 성공!")
-                        break
-            except Exception as e:
-                print(f"  iframe {idx} 오류: {e}")
+    // 검색어 입력
+    searchInput.value = '주차장';
+    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    searchInput.dispatchEvent(new Event('change', { bubbles: true }));
     
-    # 메인 페이지에서 검색 시도
-    if not search_result.get('success'):
-        search_result = page.evaluate("""() => {
-            const searchInput = document.getElementById('searchCtrNm');
+    console.log('검색어 입력 완료:', searchInput.value);
+    
+    // 검색 버튼 찾기
+    let searchBtn = document.getElementById('searchBtn');
+    
+    if (!searchBtn) {
+        // 다른 방법으로 검색 버튼 찾기
+        const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
+        for (let btn of buttons) {
+            const text = (btn.innerText || btn.value || '').trim();
+            const btnId = btn.id || '';
+            const onclick = btn.getAttribute('onclick') || '';
             
-            if (!searchInput) {
-                const altInput = document.querySelector('input[name="searchCtrNm"]');
-                if (!altInput) {
-                    const visibleInputs = Array.from(document.querySelectorAll('input')).filter(
-                        inp => inp.type === 'text' && inp.offsetParent !== null
-                    );
-                    
-                    return {
-                        success: false,
-                        error: 'searchCtrNm not found',
-                        visibleTextInputs: visibleInputs.map(inp => ({
-                            id: inp.id,
-                            name: inp.name,
-                            placeholder: inp.placeholder
-                        }))
-                    };
-                }
+            if (text.includes('검색') || text.includes('조회') || 
+                btnId.toLowerCase().includes('search') || 
+                onclick.includes('search') || onclick.includes('inquiry')) {
+                searchBtn = btn;
+                console.log('검색 버튼 발견:', btn.id, text);
+                break;
             }
-            
-            const targetInput = searchInput || document.querySelector('input[name="searchCtrNm"]');
-            
-            targetInput.value = '주차장';
-            targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-            targetInput.dispatchEvent(new Event('change', { bubbles: true }));
-            
-            let searchBtn = document.getElementById('searchBtn');
-            
-            if (!searchBtn) {
-                const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
-                for (let btn of buttons) {
-                    const text = (btn.innerText || btn.value || '').trim();
-                    if (text.includes('검색') || text.includes('조회')) {
-                        searchBtn = btn;
-                        break;
-                    }
-                }
-            }
-            
-            if (searchBtn) {
-                searchBtn.click();
-                return { success: true, method: 'button click', inputId: targetInput.id };
-            }
-            
-            const form = targetInput.closest('form');
-            if (form) {
-                form.submit();
-                return { success: true, method: 'form submit' };
-            }
-            
-            return { success: false, error: 'no submit method' };
-        }""")
-        
-        print(f"메인 페이지 검색 결과: {json.dumps(search_result, ensure_ascii=False)}")
+        }
+    }
     
-    if search_result.get('success'):
-        print(f"✓ 검색 방법: {search_result.get('method')}")
-        time.sleep(12)
-        
-        try:
-            page.wait_for_load_state('networkidle', timeout=20000)
-            print("✓ 검색 결과 로딩 완료")
-        except:
-            print("⚠️ 로딩 타임아웃")
-    else:
-        print(f"⚠️ 검색 실패: {search_result.get('error')}")
-        if 'visibleTextInputs' in search_result:
-            print("\n보이는 text input 목록:")
-            for inp in search_result.get('visibleTextInputs', []):
-                print(f"  {json.dumps(inp, ensure_ascii=False)}")
+    // 검색 실행
+    if (searchBtn) {
+        console.log('검색 버튼 클릭:', searchBtn.id);
+        searchBtn.click();
+        return {
+            success: true,
+            method: 'button click',
+            buttonId: searchBtn.id,
+            inputId: searchInput.id
+        };
+    }
     
-    print(f"✓ 검색 후 URL: {page.url}")
+    // form submit
+    const form = searchInput.closest('form');
+    if (form) {
+        console.log('form submit');
+        form.submit();
+        return {
+            success: true,
+            method: 'form submit',
+            inputId: searchInput.id
+        };
+    }
+    
+    // Enter 키
+    console.log('Enter 키 전송');
+    searchInput.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        bubbles: true
+    }));
+    
+    return {
+        success: true,
+        method: 'enter key',
+        inputId: searchInput.id
+    };
+}""")
+
+print(f"검색 실행 결과: {json.dumps(search_result, ensure_ascii=False)}")
+
+if search_result.get('success'):
+    print(f"✓ 검색 방법: {search_result.get('method')}")
+    print(f"  input ID: {search_result.get('inputId')}")
+    if search_result.get('buttonId'):
+        print(f"  button ID: {search_result.get('buttonId')}")
+    
+    time.sleep(12)
+    
+    # 로딩 대기
+    try:
+        page.wait_for_load_state('networkidle', timeout=20000)
+        print("✓ 검색 결과 로딩 완료")
+    except:
+        print("⚠️ 로딩 타임아웃")
+else:
+    print(f"⚠️ 검색 실패: {search_result.get('error')}")
+
+print(f"✓ 검색 후 URL: {page.url}")
     
     # 6. 주차장 물건 크롤링
     print("\n=== 6. 주차장 물건 크롤링 ===")
