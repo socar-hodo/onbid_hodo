@@ -68,7 +68,6 @@ try:
     # 3. 담보물 부동산 페이지로 직접 이동
     print("\n=== 3. 담보물 > 부동산 물건 페이지 직접 이동 ===")
     
-    # 발견된 URL로 직접 이동
     target_url = 'https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateList.do'
     print(f"목표 URL: {target_url}")
     
@@ -91,247 +90,112 @@ try:
     # 4. 물건명 검색창에 주차장 입력
     print("\n=== 4. 물건명 검색: 주차장 ===")
     
-    # 페이지 구조 확인
-    page_info = page.evaluate("""
-        () => {
-            const allInputs = Array.from(document.querySelectorAll('input'));
-            const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"]'));
-            const forms = Array.from(document.querySelectorAll('form'));
-            
-            // 보이는 input만 필터링
-            const visibleInputs = allInputs.filter(inp => {
-                return inp.offsetParent !== null && inp.type !== 'hidden';
-            });
-            
-            return {
-                totalInputs: allInputs.length,
-                visibleInputs: visibleInputs.length,
-                inputs: visibleInputs.map(inp => ({
-                    type: inp.type,
-                    id: inp.id,
-                    name: inp.name,
-                    placeholder: inp.placeholder,
-                    className: inp.className
-                })),
-                buttons: buttons.filter(btn => btn.offsetParent !== null).map(btn => ({
-                    id: btn.id,
-                    text: (btn.innerText || btn.value || '').slice(0, 30),
-                    className: btn.className
-                })),
-                forms: forms.length,
-                bodySnippet: document.body.innerText.slice(0, 500)
-            };
-        }
-    """)
-    
-    print(f"\n페이지 요소 정보:")
-    print(f"- 전체 input: {page_info['totalInputs']}개")
-    print(f"- 보이는 input: {page_info['visibleInputs']}개")
-    print(f"- 버튼: {len(page_info['buttons'])}개")
-    print(f"- form: {page_info['forms']}개")
-    
-    if page_info['inputs']:
-        print(f"\n보이는 input 목록:")
-        for inp in page_info['inputs']:
-            print(f"  {json.dumps(inp, ensure_ascii=False)}")
-    
-    if page_info['buttons']:
-        print(f"\n버튼 목록:")
-        for btn in page_info['buttons']:
-            print(f"  {json.dumps(btn, ensure_ascii=False)}")
-    
-    print(f"\n페이지 텍스트 샘플:")
-    print(page_info['bodySnippet'])
-    
     # 검색 실행
     search_result = page.evaluate("""
         () => {
-            // 모든 보이는 input 찾기
-            const allInputs = Array.from(document.querySelectorAll('input')).filter(
-                inp => inp.offsetParent !== null && inp.type !== 'hidden'
-            );
+            // searchCtrNm ID로 직접 찾기
+            const searchInput = document.getElementById('searchCtrNm');
             
-            console.log('보이는 input 개수:', allInputs.length);
-            
-            let searchInput = null;
-            
-            // 방법 1: 속성으로 검색창 찾기
-            for (let input of allInputs) {
-                const id = (input.id || '').toLowerCase();
-                const name = (input.name || '').toLowerCase();
-                const placeholder = (input.placeholder || '').toLowerCase();
-                const className = (input.className || '').toLowerCase();
-                
-                console.log('input 확인:', {id, name, placeholder, className});
-                
-                // ctr, nm, search, mulgun 등 키워드
-                if (id.includes('ctr') || id.includes('nm') || id.includes('search') || id.includes('mulgun') ||
-                    name.includes('ctr') || name.includes('nm') || name.includes('search') || name.includes('mulgun') ||
-                    placeholder.includes('물건') || placeholder.includes('검색') || placeholder.includes('명칭') ||
-                    className.includes('search')) {
-                    searchInput = input;
-                    console.log('검색창 발견 (속성):', {id: input.id, name: input.name});
-                    break;
-                }
-            }
-            
-            // 방법 2: label, th, td 텍스트로 찾기
             if (!searchInput) {
-                const labels = document.querySelectorAll('label, th, td, span, div');
-                for (let label of labels) {
-                    const text = label.innerText || '';
-                    if (text.includes('물건명') || text.includes('물건 명') || text === '물건명칭' || text === '명칭') {
-                        console.log('label 텍스트 발견:', text);
-                        
-                        // 같은 tr, div, form 내의 input 찾기
-                        const parent = label.closest('tr, div, form, td');
-                        if (parent) {
-                            const nearby = parent.querySelector('input[type="text"], input:not([type])');
-                            if (nearby && nearby.offsetParent !== null && nearby.type !== 'hidden') {
-                                searchInput = nearby;
-                                console.log('검색창 발견 (label):', {id: nearby.id, name: nearby.name});
-                                break;
-                            }
-                        }
-                        
-                        // 다음 형제 요소에서 input 찾기
-                        let next = label.nextElementSibling;
-                        while (next) {
-                            if (next.tagName === 'INPUT' && next.type !== 'hidden' && next.offsetParent !== null) {
-                                searchInput = next;
-                                console.log('검색창 발견 (nextSibling):', {id: next.id, name: next.name});
-                                break;
-                            }
-                            const nestedInput = next.querySelector('input[type="text"], input:not([type])');
-                            if (nestedInput && nestedInput.offsetParent !== null) {
-                                searchInput = nestedInput;
-                                console.log('검색창 발견 (nested):', {id: nestedInput.id, name: nestedInput.name});
-                                break;
-                            }
-                            next = next.nextElementSibling;
-                        }
-                        if (searchInput) break;
-                    }
+                // 대체 방법으로 찾기
+                const altInput = document.querySelector('input[name="searchCtrNm"]');
+                if (altInput) {
+                    searchInput = altInput;
+                } else {
+                    return {
+                        success: false,
+                        error: 'searchCtrNm not found',
+                        availableIds: Array.from(document.querySelectorAll('input')).map(inp => ({
+                            id: inp.id,
+                            name: inp.name,
+                            type: inp.type
+                        })).slice(0, 10)
+                    };
                 }
             }
             
-            // 방법 3: 첫 번째 보이는 text input
-            if (!searchInput && allInputs.length > 0) {
-                for (let input of allInputs) {
-                    if (input.type === 'text' || input.type === '') {
-                        searchInput = input;
-                        console.log('기본 검색창 사용:', {id: input.id, name: input.name});
+            console.log('검색창 발견:', {id: searchInput.id, name: searchInput.name});
+            
+            // 검색어 입력
+            searchInput.value = '주차장';
+            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+            searchInput.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            console.log('검색어 입력 완료:', searchInput.value);
+            
+            // 검색 버튼 찾기
+            let searchBtn = document.getElementById('searchBtn');
+            
+            if (!searchBtn) {
+                // 대체 방법으로 검색 버튼 찾기
+                const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
+                for (let btn of buttons) {
+                    const text = (btn.innerText || btn.value || '').trim();
+                    const id = btn.id || '';
+                    const onclick = btn.getAttribute('onclick') || '';
+                    
+                    if (text.includes('검색') || text.includes('조회') || 
+                        id.toLowerCase().includes('search') || 
+                        onclick.includes('search')) {
+                        searchBtn = btn;
+                        console.log('검색 버튼 발견:', {id: btn.id, text: text});
                         break;
                     }
                 }
             }
             
-            if (!searchInput) {
-                return { 
-                    success: false, 
-                    error: 'no input found',
-                    inputCount: allInputs.length,
-                    inputDetails: allInputs.map(inp => ({
-                        id: inp.id,
-                        name: inp.name,
-                        type: inp.type,
-                        placeholder: inp.placeholder
-                    }))
-                };
-            }
-            
-            // 검색어 입력
-            console.log('검색어 입력 시작');
-            searchInput.focus();
-            searchInput.value = '주차장';
-            
-            // 다양한 이벤트 발생
-            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-            searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-            searchInput.dispatchEvent(new Event('blur', { bubbles: true }));
-            
-            console.log('검색어 입력 완료:', searchInput.value);
-            
-            // 검색 버튼 찾기
-            const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"], a[role="button"]'));
-            let searchBtn = null;
-            
-            for (let btn of buttons) {
-                if (btn.offsetParent === null) continue;
-                
-                const text = (btn.innerText || btn.value || '').trim();
-                const id = (btn.id || '').toLowerCase();
-                const className = (btn.className || '').toLowerCase();
-                
-                console.log('버튼 확인:', {text, id, className});
-                
-                if (text.includes('검색') || text.includes('조회') || text.includes('Search') ||
-                    id.includes('search') || id.includes('btn') || id.includes('inquiry') ||
-                    className.includes('search') || className.includes('btn')) {
-                    searchBtn = btn;
-                    console.log('검색 버튼 발견:', {id: btn.id, text: text});
-                    break;
-                }
-            }
-            
             // 검색 실행
             if (searchBtn) {
-                console.log('버튼 클릭');
+                console.log('검색 버튼 클릭:', searchBtn.id);
                 searchBtn.click();
-                return { 
-                    success: true, 
+                return {
+                    success: true,
                     method: 'button click',
-                    inputId: searchInput.id,
-                    inputName: searchInput.name,
                     buttonId: searchBtn.id,
-                    buttonText: searchBtn.innerText || searchBtn.value
+                    inputId: searchInput.id
                 };
             }
             
-            // form submit 시도
+            // form submit
             const form = searchInput.closest('form');
             if (form) {
                 console.log('form submit');
                 form.submit();
-                return { 
-                    success: true, 
+                return {
+                    success: true,
                     method: 'form submit',
-                    inputId: searchInput.id,
-                    inputName: searchInput.name
+                    inputId: searchInput.id
                 };
             }
             
-            // Enter 키 시뮬레이션
+            // Enter 키
             console.log('Enter 키 전송');
             const events = ['keydown', 'keypress', 'keyup'];
             events.forEach(eventType => {
-                const evt = new KeyboardEvent(eventType, {
+                searchInput.dispatchEvent(new KeyboardEvent(eventType, {
                     key: 'Enter',
                     code: 'Enter',
                     keyCode: 13,
                     which: 13,
-                    bubbles: true,
-                    cancelable: true
-                });
-                searchInput.dispatchEvent(evt);
+                    bubbles: true
+                }));
             });
             
-            return { 
-                success: true, 
-                method: 'enter key simulation',
-                inputId: searchInput.id,
-                inputName: searchInput.name
+            return {
+                success: true,
+                method: 'enter key',
+                inputId: searchInput.id
             };
         }
     """)
     
-    print(f"\n검색 실행 결과: {json.dumps(search_result, ensure_ascii=False)}")
+    print(f"검색 실행 결과: {json.dumps(search_result, ensure_ascii=False)}")
     
     if search_result.get('success'):
         print(f"✓ 검색 방법: {search_result.get('method')}")
-        print(f"  input: {search_result.get('inputId')} / {search_result.get('inputName')}")
-        if search_result.get('buttonText'):
-            print(f"  button: {search_result.get('buttonText')}")
+        print(f"  input ID: {search_result.get('inputId')}")
+        if search_result.get('buttonId'):
+            print(f"  button ID: {search_result.get('buttonId')}")
         
         time.sleep(12)
         
@@ -343,9 +207,9 @@ try:
             print("⚠️ 로딩 타임아웃")
     else:
         print(f"⚠️ 검색 실패: {search_result.get('error')}")
-        if 'inputDetails' in search_result:
-            print("\n사용 가능한 input 상세:")
-            for inp in search_result['inputDetails']:
+        if 'availableIds' in search_result:
+            print("\n사용 가능한 input 요소:")
+            for inp in search_result['availableIds']:
                 print(f"  {json.dumps(inp, ensure_ascii=False)}")
     
     print(f"✓ 검색 후 URL: {page.url}")
@@ -359,10 +223,10 @@ try:
     print(f"페이지에 '주차장' 텍스트: {'✓' if has_parking else '✗'}")
     
     if has_parking:
-        print(f"텍스트 샘플 (주차장 포함):")
         # 주차장이 있는 부분 찾기
         idx = page_text.find('주차')
         if idx >= 0:
+            print(f"텍스트 샘플 (주차장 포함):")
             print(page_text[max(0, idx-100):idx+200])
     
     # JavaScript로 테이블 데이터 추출
@@ -373,10 +237,6 @@ try:
             // 모든 테이블 찾기
             const tables = document.querySelectorAll('table');
             console.log('테이블 개수:', tables.length);
-            
-            // div, ul, article 등 다른 컨테이너도 확인
-            const containers = document.querySelectorAll('div[class*="list"], div[class*="item"], ul[class*="list"], article');
-            console.log('리스트 컨테이너 개수:', containers.length);
             
             // 테이블에서 검색
             tables.forEach((table, tableIdx) => {
@@ -390,7 +250,7 @@ try:
                         const rowText = texts.join(' ');
                         
                         if (rowText.includes('주차') || rowText.includes('주차장')) {
-                            console.log(`[테이블${tableIdx}-행${rowIdx}] 주차장 발견:`, rowText.slice(0, 100));
+                            console.log(`[테이블${tableIdx}-행${rowIdx}] 주차장 발견`);
                             
                             let link = '';
                             const linkElem = row.querySelector('a[href]');
@@ -405,7 +265,6 @@ try:
                             }
                             
                             results.push({
-                                source: 'table',
                                 texts: texts,
                                 link: link,
                                 imgSrc: imgSrc,
@@ -416,21 +275,26 @@ try:
                 });
             });
             
-            // div/ul 리스트에서도 검색
-            containers.forEach((container, idx) => {
-                const text = container.innerText || '';
-                if ((text.includes('주차') || text.includes('주차장')) && text.length < 2000) {
-                    console.log(`[컨테이너${idx}] 주차장 발견:`, text.slice(0, 100));
+            // div/ul 리스트 구조도 확인
+            const listItems = document.querySelectorAll('div[class*="list"] > div, ul[class*="list"] > li, article');
+            console.log('리스트 아이템 개수:', listItems.length);
+            
+            listItems.forEach((item, idx) => {
+                const text = item.innerText || '';
+                if ((text.includes('주차') || text.includes('주차장')) && text.length > 20 && text.length < 2000) {
+                    console.log(`[리스트${idx}] 주차장 발견`);
                     
                     let link = '';
-                    const linkElem = container.querySelector('a[href]');
+                    const linkElem = item.querySelector('a[href]');
                     if (linkElem) {
                         link = linkElem.href;
                     }
                     
+                    // 텍스트를 줄 단위로 분할
+                    const lines = text.split('\n').map(line => line.trim()).filter(line => line);
+                    
                     results.push({
-                        source: 'container',
-                        texts: [text],
+                        texts: lines,
                         link: link,
                         imgSrc: '',
                         rowText: text
@@ -451,31 +315,32 @@ try:
             texts = item['texts']
             row_text = item['rowText']
             
-            print(f"\n[{idx+1}] 처리 중: {row_text[:150]}")
+            print(f"\n[{idx+1}] 처리 중...")
             
             # 제외 키워드
             if any(kw in row_text for kw in ['일반공고', '공유재산', '위수탁', '취소공고']):
-                print("  → 제외됨")
+                print("  → 제외됨 (키워드 필터)")
                 continue
             
             # 공고번호 추출 (숫자-숫자 패턴)
             gonggo_no = ''
             for text in texts:
                 for line in text.split('\n'):
+                    # 예: 2024-1234-5678 형태
                     if '-' in line and sum(c.isdigit() for c in line) >= 8:
                         gonggo_no = line.strip()
                         break
                 if gonggo_no:
                     break
             
-            # 주소 추출
+            # 주소/물건명 추출
             address = ''
             for text in texts:
-                if '주차' in text and len(text) > 10:
-                    # 주소 부분만 추출
+                if ('주차' in text or '주차장' in text) and len(text) > 10:
+                    # 여러 줄인 경우 적절히 파싱
                     lines = text.split('\n')
                     for line in lines:
-                        if '주차' in line or '도' in line or '시' in line or '구' in line:
+                        if ('주차' in line or '도' in line or '시' in line or '구' in line) and len(line) > 5:
                             address = line.strip()
                             break
                     if not address:
@@ -483,7 +348,14 @@ try:
                     break
             
             if not address:
-                address = row_text[:200]
+                # 주차가 포함된 첫 번째 텍스트 사용
+                for text in texts:
+                    if '주차' in text:
+                        address = text.strip()
+                        break
+            
+            if not address:
+                address = row_text[:200].strip()
             
             # 면적 정보
             area = ''
@@ -500,7 +372,7 @@ try:
                 '공고번호': gonggo_no or '번호미확인',
                 '물건명주소': address,
                 '면적': area,
-                '입찰기간': texts[1] if len(texts) > 1 else '',
+                '입찰기간': texts[1] if len(texts) > 1 and texts[1] != address else '',
                 '최저입찰가': texts[2] if len(texts) > 2 else '',
                 '물건상태': texts[3] if len(texts) > 3 else '',
                 '조회수': texts[4] if len(texts) > 4 else '',
@@ -509,7 +381,7 @@ try:
             }
             
             all_parking_data.append(parking_info)
-            print(f"  ✓ 추가: {parking_info['공고번호']}")
+            print(f"  ✓ 추가: {parking_info['공고번호']} - {parking_info['물건명주소'][:50]}")
         
         except Exception as e:
             print(f"  ✗ 파싱 오류: {e}")
