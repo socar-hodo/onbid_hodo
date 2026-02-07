@@ -455,12 +455,12 @@ try:
                 if area:
                     break
             
-            # 공고 URL 생성 (추측 - 디버깅 결과에 따라 수정 필요)
+            # 공고 URL 생성 (Form action 기반으로 수정)
             announce_url = ''
             announce_params = item.get('announceParams')
             if announce_params:
-                # 여러 가능한 URL 패턴 시도
-                announce_url = f"https://www.onbid.co.kr/op/cta/pbancmn/viewPublicAnnounce.do?pblancSeq={announce_params['param1']}&pblancNo={announce_params['param2']}"
+                # 올바른 Form action URL 사용
+                announce_url = f"https://www.onbid.co.kr/op/ppa/plnmmn/publicAnnounceRlstDetail.do?pblancSeq={announce_params['param1']}&pblancNo={announce_params['param2']}"
             
             parking_info = {
                 '공고번호': gonggo_no or '번호미확인',
