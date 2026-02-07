@@ -129,49 +129,31 @@ try:
     print(f"- 버튼: {len(page_structure['buttons'])}개")
     print(f"- form: {page_structure['forms']}개")
     
-    print(f"\n보이는 input 목록 (최대 5개):")
-    for inp in page_structure['visibleInputs'][:5]:
-        print(f"  {json.dumps(inp, ensure_ascii=False)}")
-    
-    if page_structure['buttons']:
-        print(f"\n버튼 목록 (최대 5개):")
-        for btn in page_structure['buttons'][:5]:
-            print(f"  {json.dumps(btn, ensure_ascii=False)}")
-    
     # 5. 물건명 검색창에 주차장 입력
     print("\n=== 5. 물건명 검색: 주차장 ===")
     
     # searchCltrNm을 사용한 검색
     search_result = page.evaluate("""() => {
-        // searchCltrNm ID로 직접 찾기
         const searchInput = document.getElementById('searchCltrNm');
         
         if (!searchInput) {
             return {
                 success: false,
-                error: 'searchCltrNm not found',
-                availableIds: Array.from(document.querySelectorAll('input')).slice(0, 10).map(inp => ({
-                    id: inp.id,
-                    name: inp.name,
-                    type: inp.type
-                }))
+                error: 'searchCltrNm not found'
             };
         }
         
         console.log('검색창 발견:', searchInput.id, searchInput.name);
         
-        // 검색어 입력
         searchInput.value = '주차장';
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         searchInput.dispatchEvent(new Event('change', { bubbles: true }));
         
         console.log('검색어 입력 완료:', searchInput.value);
         
-        // 검색 버튼 찾기
         let searchBtn = document.getElementById('searchBtn');
         
         if (!searchBtn) {
-            // 다른 방법으로 검색 버튼 찾기
             const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
             for (let btn of buttons) {
                 const text = (btn.innerText || btn.value || '').trim();
@@ -188,7 +170,6 @@ try:
             }
         }
         
-        // 검색 실행
         if (searchBtn) {
             console.log('검색 버튼 클릭:', searchBtn.id);
             searchBtn.click();
@@ -200,7 +181,6 @@ try:
             };
         }
         
-        // form submit
         const form = searchInput.closest('form');
         if (form) {
             console.log('form submit');
@@ -212,7 +192,6 @@ try:
             };
         }
         
-        // Enter 키
         console.log('Enter 키 전송');
         searchInput.dispatchEvent(new KeyboardEvent('keydown', {
             key: 'Enter',
@@ -239,7 +218,6 @@ try:
         
         time.sleep(12)
         
-        # 로딩 대기
         try:
             page.wait_for_load_state('networkidle', timeout=20000)
             print("✓ 검색 결과 로딩 완료")
@@ -247,10 +225,6 @@ try:
             print("⚠️ 로딩 타임아웃")
     else:
         print(f"⚠️ 검색 실패: {search_result.get('error')}")
-        if 'availableIds' in search_result:
-            print("\n사용 가능한 input 요소:")
-            for inp in search_result['availableIds']:
-                print(f"  {json.dumps(inp, ensure_ascii=False)}")
     
     print(f"✓ 검색 후 URL: {page.url}")
     
@@ -268,7 +242,7 @@ try:
             print(f"텍스트 샘플 (주차장 포함):")
             print(page_text[max(0, idx-100):idx+200])
     
-    # JavaScript로 테이블 데이터 추출
+    # JavaScript로 테이블 데이터 추출 (링크 URL 변환 포함)
     table_data = page.evaluate("""() => {
         const results = [];
         
@@ -289,9 +263,27 @@ try:
                         console.log('테이블', tableIdx, '행', rowIdx, '주차장 발견');
                         
                         let link = '';
-                        const linkElem = row.querySelector('a[href]');
+                        
+                        const linkElem = row.querySelector('a[href], a[onclick], [onclick*="fn_selectDetail"]');
                         if (linkElem) {
-                            link = linkElem.href;
+                            const href = linkElem.getAttribute('href') || '';
+                            const onclick = linkElem.getAttribute('onclick') || '';
+                            
+                            const searchText = href + ' ' + onclick;
+                            const match = searchText.match(/fn_selectDetail\\(['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\)/);
+                            
+                            if (match) {
+                                link = 'https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateView.do?' +
+                                       'cltrNo=' + match[1] +
+                                       '&cltrHstrNo=' + match[2] +
+                                       '&plnmNo=' + match[3] +
+                                       '&pbctNo=' + match[4] +
+                                       '&scrnGrpCd=' + match[5] +
+                                       '&pbctCdtnNo=' + match[6];
+                                console.log('링크 변환:', link);
+                            } else if (href && !href.includes('javascript:')) {
+                                link = href;
+                            }
                         }
                         
                         let imgSrc = '';
@@ -320,9 +312,26 @@ try:
                 console.log('리스트', idx, '주차장 발견');
                 
                 let link = '';
-                const linkElem = item.querySelector('a[href]');
+                
+                const linkElem = item.querySelector('a[href], a[onclick], [onclick*="fn_selectDetail"]');
                 if (linkElem) {
-                    link = linkElem.href;
+                    const href = linkElem.getAttribute('href') || '';
+                    const onclick = linkElem.getAttribute('onclick') || '';
+                    
+                    const searchText = href + ' ' + onclick;
+                    const match = searchText.match(/fn_selectDetail\\(['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\)/);
+                    
+                    if (match) {
+                        link = 'https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateView.do?' +
+                               'cltrNo=' + match[1] +
+                               '&cltrHstrNo=' + match[2] +
+                               '&plnmNo=' + match[3] +
+                               '&pbctNo=' + match[4] +
+                               '&scrnGrpCd=' + match[5] +
+                               '&pbctCdtnNo=' + match[6];
+                    } else if (href && !href.includes('javascript:')) {
+                        link = href;
+                    }
                 }
                 
                 const lines = text.split('\\n').map(line => line.trim()).filter(line => line);
@@ -412,6 +421,8 @@ try:
             
             all_parking_data.append(parking_info)
             print(f"  ✓ 추가: {parking_info['공고번호']} - {parking_info['물건명주소'][:50]}")
+            if parking_info['공고링크']:
+                print(f"     링크: {parking_info['공고링크'][:80]}")
         
         except Exception as e:
             print(f"  ✗ 파싱 오류: {e}")
