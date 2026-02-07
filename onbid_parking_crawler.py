@@ -91,103 +91,90 @@ try:
     print("\n=== 4. 물건명 검색: 주차장 ===")
     
     # 검색 실행
-    search_result = page.evaluate("""
-        () => {
-            // searchCtrNm ID로 직접 찾기
-            const searchInput = document.getElementById('searchCtrNm');
-            
-            if (!searchInput) {
-                // 대체 방법으로 찾기
-                const altInput = document.querySelector('input[name="searchCtrNm"]');
-                if (altInput) {
-                    searchInput = altInput;
-                } else {
-                    return {
-                        success: false,
-                        error: 'searchCtrNm not found',
-                        availableIds: Array.from(document.querySelectorAll('input')).map(inp => ({
-                            id: inp.id,
-                            name: inp.name,
-                            type: inp.type
-                        })).slice(0, 10)
-                    };
-                }
-            }
-            
-            console.log('검색창 발견:', {id: searchInput.id, name: searchInput.name});
-            
-            // 검색어 입력
-            searchInput.value = '주차장';
-            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-            searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-            
-            console.log('검색어 입력 완료:', searchInput.value);
-            
-            // 검색 버튼 찾기
-            let searchBtn = document.getElementById('searchBtn');
-            
-            if (!searchBtn) {
-                // 대체 방법으로 검색 버튼 찾기
-                const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
-                for (let btn of buttons) {
-                    const text = (btn.innerText || btn.value || '').trim();
-                    const id = btn.id || '';
-                    const onclick = btn.getAttribute('onclick') || '';
-                    
-                    if (text.includes('검색') || text.includes('조회') || 
-                        id.toLowerCase().includes('search') || 
-                        onclick.includes('search')) {
-                        searchBtn = btn;
-                        console.log('검색 버튼 발견:', {id: btn.id, text: text});
-                        break;
-                    }
-                }
-            }
-            
-            // 검색 실행
-            if (searchBtn) {
-                console.log('검색 버튼 클릭:', searchBtn.id);
-                searchBtn.click();
+    search_result = page.evaluate("""() => {
+        const searchInput = document.getElementById('searchCtrNm');
+        
+        if (!searchInput) {
+            const altInput = document.querySelector('input[name="searchCtrNm"]');
+            if (!altInput) {
                 return {
-                    success: true,
-                    method: 'button click',
-                    buttonId: searchBtn.id,
-                    inputId: searchInput.id
+                    success: false,
+                    error: 'searchCtrNm not found',
+                    availableIds: Array.from(document.querySelectorAll('input')).slice(0, 10).map(inp => ({
+                        id: inp.id,
+                        name: inp.name,
+                        type: inp.type
+                    }))
                 };
             }
-            
-            // form submit
-            const form = searchInput.closest('form');
-            if (form) {
-                console.log('form submit');
-                form.submit();
-                return {
-                    success: true,
-                    method: 'form submit',
-                    inputId: searchInput.id
-                };
+        }
+        
+        const targetInput = searchInput || document.querySelector('input[name="searchCtrNm"]');
+        
+        console.log('검색창 발견:', targetInput.id, targetInput.name);
+        
+        targetInput.value = '주차장';
+        targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+        targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+        
+        console.log('검색어 입력 완료:', targetInput.value);
+        
+        let searchBtn = document.getElementById('searchBtn');
+        
+        if (!searchBtn) {
+            const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
+            for (let btn of buttons) {
+                const text = (btn.innerText || btn.value || '').trim();
+                const btnId = btn.id || '';
+                const onclick = btn.getAttribute('onclick') || '';
+                
+                if (text.includes('검색') || text.includes('조회') || 
+                    btnId.toLowerCase().includes('search') || 
+                    onclick.includes('search')) {
+                    searchBtn = btn;
+                    console.log('검색 버튼 발견:', btn.id, text);
+                    break;
+                }
             }
-            
-            // Enter 키
-            console.log('Enter 키 전송');
-            const events = ['keydown', 'keypress', 'keyup'];
-            events.forEach(eventType => {
-                searchInput.dispatchEvent(new KeyboardEvent(eventType, {
-                    key: 'Enter',
-                    code: 'Enter',
-                    keyCode: 13,
-                    which: 13,
-                    bubbles: true
-                }));
-            });
-            
+        }
+        
+        if (searchBtn) {
+            console.log('검색 버튼 클릭:', searchBtn.id);
+            searchBtn.click();
             return {
                 success: true,
-                method: 'enter key',
-                inputId: searchInput.id
+                method: 'button click',
+                buttonId: searchBtn.id,
+                inputId: targetInput.id
             };
         }
-    """)
+        
+        const form = targetInput.closest('form');
+        if (form) {
+            console.log('form submit');
+            form.submit();
+            return {
+                success: true,
+                method: 'form submit',
+                inputId: targetInput.id
+            };
+        }
+        
+        console.log('Enter 키 전송');
+        targetInput.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true
+        }));
+        
+        return {
+            success: true,
+            method: 'enter key',
+            inputId: targetInput.id
+        };
+    }""")
     
     print(f"검색 실행 결과: {json.dumps(search_result, ensure_ascii=False)}")
     
@@ -223,89 +210,82 @@ try:
     print(f"페이지에 '주차장' 텍스트: {'✓' if has_parking else '✗'}")
     
     if has_parking:
-        # 주차장이 있는 부분 찾기
         idx = page_text.find('주차')
         if idx >= 0:
             print(f"텍스트 샘플 (주차장 포함):")
             print(page_text[max(0, idx-100):idx+200])
     
     # JavaScript로 테이블 데이터 추출
-    table_data = page.evaluate("""
-        () => {
-            const results = [];
+    table_data = page.evaluate("""() => {
+        const results = [];
+        
+        const tables = document.querySelectorAll('table');
+        console.log('테이블 개수:', tables.length);
+        
+        tables.forEach((table, tableIdx) => {
+            const rows = table.querySelectorAll('tbody tr, tr');
+            console.log('테이블', tableIdx, '행 개수:', rows.length);
             
-            // 모든 테이블 찾기
-            const tables = document.querySelectorAll('table');
-            console.log('테이블 개수:', tables.length);
-            
-            // 테이블에서 검색
-            tables.forEach((table, tableIdx) => {
-                const rows = table.querySelectorAll('tbody tr, tr');
-                console.log(`테이블 ${tableIdx} 행 개수:`, rows.length);
-                
-                rows.forEach((row, rowIdx) => {
-                    const cells = Array.from(row.querySelectorAll('td, th'));
-                    if (cells.length >= 3) {
-                        const texts = cells.map(cell => cell.innerText.trim());
-                        const rowText = texts.join(' ');
+            rows.forEach((row, rowIdx) => {
+                const cells = Array.from(row.querySelectorAll('td, th'));
+                if (cells.length >= 3) {
+                    const texts = cells.map(cell => cell.innerText.trim());
+                    const rowText = texts.join(' ');
+                    
+                    if (rowText.includes('주차') || rowText.includes('주차장')) {
+                        console.log('테이블', tableIdx, '행', rowIdx, '주차장 발견');
                         
-                        if (rowText.includes('주차') || rowText.includes('주차장')) {
-                            console.log(`[테이블${tableIdx}-행${rowIdx}] 주차장 발견`);
-                            
-                            let link = '';
-                            const linkElem = row.querySelector('a[href]');
-                            if (linkElem) {
-                                link = linkElem.href;
-                            }
-                            
-                            let imgSrc = '';
-                            const imgElem = row.querySelector('img');
-                            if (imgElem) {
-                                imgSrc = imgElem.src;
-                            }
-                            
-                            results.push({
-                                texts: texts,
-                                link: link,
-                                imgSrc: imgSrc,
-                                rowText: rowText
-                            });
+                        let link = '';
+                        const linkElem = row.querySelector('a[href]');
+                        if (linkElem) {
+                            link = linkElem.href;
                         }
+                        
+                        let imgSrc = '';
+                        const imgElem = row.querySelector('img');
+                        if (imgElem) {
+                            imgSrc = imgElem.src;
+                        }
+                        
+                        results.push({
+                            texts: texts,
+                            link: link,
+                            imgSrc: imgSrc,
+                            rowText: rowText
+                        });
                     }
-                });
-            });
-            
-            // div/ul 리스트 구조도 확인
-            const listItems = document.querySelectorAll('div[class*="list"] > div, ul[class*="list"] > li, article');
-            console.log('리스트 아이템 개수:', listItems.length);
-            
-            listItems.forEach((item, idx) => {
-                const text = item.innerText || '';
-                if ((text.includes('주차') || text.includes('주차장')) && text.length > 20 && text.length < 2000) {
-                    console.log(`[리스트${idx}] 주차장 발견`);
-                    
-                    let link = '';
-                    const linkElem = item.querySelector('a[href]');
-                    if (linkElem) {
-                        link = linkElem.href;
-                    }
-                    
-                    // 텍스트를 줄 단위로 분할
-                    const lines = text.split('\n').map(line => line.trim()).filter(line => line);
-                    
-                    results.push({
-                        texts: lines,
-                        link: link,
-                        imgSrc: '',
-                        rowText: text
-                    });
                 }
             });
-            
-            console.log('총 주차장 발견:', results.length);
-            return results;
-        }
-    """)
+        });
+        
+        const listItems = document.querySelectorAll('div[class*="list"] > div, ul[class*="list"] > li, article');
+        console.log('리스트 아이템 개수:', listItems.length);
+        
+        listItems.forEach((item, idx) => {
+            const text = item.innerText || '';
+            if ((text.includes('주차') || text.includes('주차장')) && text.length > 20 && text.length < 2000) {
+                console.log('리스트', idx, '주차장 발견');
+                
+                let link = '';
+                const linkElem = item.querySelector('a[href]');
+                if (linkElem) {
+                    link = linkElem.href;
+                }
+                
+                const lines = text.split('\\n').map(line => line.trim()).filter(line => line);
+                
+                results.push({
+                    texts: lines,
+                    link: link,
+                    imgSrc: '',
+                    rowText: text
+                });
+            }
+        });
+        
+        console.log('총 주차장 발견:', results.length);
+        return results;
+    }""")
     
     print(f"✓ {len(table_data)}개 주차장 항목 발견")
     
@@ -322,11 +302,10 @@ try:
                 print("  → 제외됨 (키워드 필터)")
                 continue
             
-            # 공고번호 추출 (숫자-숫자 패턴)
+            # 공고번호 추출
             gonggo_no = ''
             for text in texts:
                 for line in text.split('\n'):
-                    # 예: 2024-1234-5678 형태
                     if '-' in line and sum(c.isdigit() for c in line) >= 8:
                         gonggo_no = line.strip()
                         break
@@ -337,7 +316,6 @@ try:
             address = ''
             for text in texts:
                 if ('주차' in text or '주차장' in text) and len(text) > 10:
-                    # 여러 줄인 경우 적절히 파싱
                     lines = text.split('\n')
                     for line in lines:
                         if ('주차' in line or '도' in line or '시' in line or '구' in line) and len(line) > 5:
@@ -348,7 +326,6 @@ try:
                     break
             
             if not address:
-                # 주차가 포함된 첫 번째 텍스트 사용
                 for text in texts:
                     if '주차' in text:
                         address = text.strip()
