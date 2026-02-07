@@ -65,68 +65,171 @@ try:
         except Exception as e:
             print(f"⚠️ 로그인 실패: {e}")
     
-    # 3. 부동산 물건 페이지로 직접 이동
-    print("\n=== 3. 부동산 물건 페이지 이동 ===")
-    page.goto('https://www.onbid.co.kr/op/cta/nftmf/collateralRealEstateList.do', timeout=60000)
-    time.sleep(5)
-    print(f"✓ 물건 페이지: {page.url}")
+    # 3. 메뉴를 통해 부동산 > 담보물 > 부동산 물건 페이지로 이동
+    print("\n=== 3. 메뉴 네비게이션: 부동산 > 담보물 > 부동산 ===")
     
-    # 4. 물건명 검색창에 주차장 입력 (개선된 버전)
-    print("\n=== 4. 물건명 검색: 주차장 ===")
-    
-    # 먼저 페이지 HTML 구조 확인
-    page_info = page.evaluate("""
+    # 3-1. 부동산 메뉴 찾기 및 클릭
+    menu_nav = page.evaluate("""
         () => {
-            const inputs = Array.from(document.querySelectorAll('input[type="text"]'));
-            const forms = Array.from(document.querySelectorAll('form'));
+            // 부동산 메뉴 찾기
+            const links = document.querySelectorAll('a');
+            let realEstateLink = null;
             
-            return {
-                inputs: inputs.map(inp => ({
-                    id: inp.id,
-                    name: inp.name,
-                    placeholder: inp.placeholder,
-                    value: inp.value
-                })),
-                forms: forms.length,
-                bodyText: document.body.innerText.slice(0, 500)
-            };
-        }
-    """)
-    
-    print(f"페이지 input 요소들: {json.dumps(page_info['inputs'], indent=2, ensure_ascii=False)}")
-    
-    # 여러 방법으로 검색 시도
-    search_result = page.evaluate("""
-        () => {
-            // 방법 1: placeholder나 label로 검색창 찾기
-            let searchInput = null;
-            const inputs = document.querySelectorAll('input[type="text"]');
-            
-            for (let input of inputs) {
-                const placeholder = (input.placeholder || '').toLowerCase();
-                const id = (input.id || '').toLowerCase();
-                const name = (input.name || '').toLowerCase();
+            for (let link of links) {
+                const text = link.innerText.trim();
+                const href = link.href || '';
                 
-                // 물건명, 검색, search 등의 키워드로 찾기
-                if (placeholder.includes('물건') || placeholder.includes('검색') ||
-                    id.includes('search') || id.includes('mulgun') || id.includes('ctr') ||
-                    name.includes('search') || name.includes('mulgun') || name.includes('ctr')) {
-                    searchInput = input;
-                    console.log('찾은 검색창:', {id: input.id, name: input.name, placeholder: input.placeholder});
+                // "부동산" 텍스트 또는 /op/dsa/ 경로
+                if (text === '부동산' || href.includes('/op/dsa/') || href.includes('1stSubMinList')) {
+                    realEstateLink = link;
+                    console.log('부동산 메뉴 발견:', {text: text, href: href});
                     break;
                 }
             }
             
-            // 방법 2: label 텍스트로 찾기
+            if (realEstateLink) {
+                realEstateLink.click();
+                return { success: true, text: realEstateLink.innerText, href: realEstateLink.href };
+            }
+            
+            return { success: false, error: '부동산 메뉴를 찾을 수 없음' };
+        }
+    """)
+    
+    print(f"부동산 메뉴 클릭: {json.dumps(menu_nav, ensure_ascii=False)}")
+    
+    if menu_nav.get('success'):
+        time.sleep(3)
+        print(f"✓ 현재 URL: {page.url}")
+    else:
+        print("⚠️ 직접 URL로 이동 시도")
+        page.goto('https://www.onbid.co.kr/op/dsa/main/1stSubMinList.do', timeout=60000)
+        time.sleep(3)
+    
+    # 3-2. 담보물 > 부동산 메뉴 찾기 및 클릭
+    print("\n=== 3-2. 담보물 > 부동산 메뉴 클릭 ===")
+    
+    collateral_nav = page.evaluate("""
+        () => {
+            const links = document.querySelectorAll('a');
+            let collateralLink = null;
+            
+            for (let link of links) {
+                const text = link.innerText.trim();
+                const href = link.href || '';
+                
+                // "담보물" 또는 "부동산" 관련 링크
+                if (text.includes('담보물') || text.includes('물건') || 
+                    href.includes('collateralRealEstateList') || 
+                    href.includes('/op/cta/') ||
+                    href.includes('nftmf')) {
+                    collateralLink = link;
+                    console.log('담보물/부동산 링크 발견:', {text: text, href: href});
+                    break;
+                }
+            }
+            
+            if (collateralLink) {
+                collateralLink.click();
+                return { success: true, text: collateralLink.innerText, href: collateralLink.href };
+            }
+            
+            return { success: false, error: '담보물 메뉴를 찾을 수 없음' };
+        }
+    """)
+    
+    print(f"담보물 메뉴 클릭: {json.dumps(collateral_nav, ensure_ascii=False)}")
+    
+    if collateral_nav.get('success'):
+        time.sleep(5)
+        print(f"✓ 현재 URL: {page.url}")
+    else:
+        print("⚠️ 직접 URL로 이동 시도")
+        page.goto('https://www.onbid.co.kr/op/cta/nftmf/collateralRealEstateList.do', timeout=60000)
+        time.sleep(5)
+    
+    # 페이지 완전 로딩 대기
+    try:
+        page.wait_for_load_state('networkidle', timeout=30000)
+        print("✓ 네트워크 로딩 완료")
+    except:
+        print("⚠️ 네트워크 타임아웃 (계속 진행)")
+    
+    print(f"✓ 최종 URL: {page.url}")
+    
+    # 4. 물건명 검색창에 주차장 입력
+    print("\n=== 4. 물건명 검색: 주차장 ===")
+    
+    # 페이지 구조 확인
+    page_info = page.evaluate("""
+        () => {
+            const allInputs = Array.from(document.querySelectorAll('input'));
+            const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"]'));
+            
+            return {
+                inputs: allInputs.map(inp => ({
+                    type: inp.type,
+                    id: inp.id,
+                    name: inp.name,
+                    placeholder: inp.placeholder,
+                    visible: inp.offsetParent !== null
+                })).filter(inp => inp.visible),
+                buttons: buttons.map(btn => ({
+                    id: btn.id,
+                    text: (btn.innerText || btn.value || '').slice(0, 30),
+                    className: btn.className
+                })).filter(btn => btn.text)
+            };
+        }
+    """)
+    
+    print(f"보이는 input: {len(page_info['inputs'])}개")
+    print(f"버튼: {len(page_info['buttons'])}개")
+    
+    if page_info['inputs']:
+        print("\ninput 목록:")
+        for inp in page_info['inputs'][:5]:
+            print(f"  {json.dumps(inp, ensure_ascii=False)}")
+    
+    if page_info['buttons']:
+        print("\n버튼 목록:")
+        for btn in page_info['buttons'][:5]:
+            print(f"  {json.dumps(btn, ensure_ascii=False)}")
+    
+    # 검색 실행
+    search_result = page.evaluate("""
+        () => {
+            // 모든 보이는 input 찾기
+            const allInputs = Array.from(document.querySelectorAll('input')).filter(
+                inp => inp.offsetParent !== null && inp.type !== 'hidden'
+            );
+            
+            let searchInput = null;
+            
+            // 방법 1: 속성으로 찾기
+            for (let input of allInputs) {
+                const id = (input.id || '').toLowerCase();
+                const name = (input.name || '').toLowerCase();
+                const placeholder = (input.placeholder || '').toLowerCase();
+                
+                if (id.includes('ctr') || id.includes('nm') || id.includes('search') ||
+                    name.includes('ctr') || name.includes('nm') || name.includes('search') ||
+                    placeholder.includes('물건') || placeholder.includes('검색')) {
+                    searchInput = input;
+                    break;
+                }
+            }
+            
+            // 방법 2: 주변 텍스트로 찾기
             if (!searchInput) {
-                const labels = document.querySelectorAll('label');
+                const labels = document.querySelectorAll('label, th, span, div');
                 for (let label of labels) {
-                    if (label.innerText.includes('물건명') || label.innerText.includes('검색')) {
-                        const forId = label.getAttribute('for');
-                        if (forId) {
-                            searchInput = document.getElementById(forId);
-                            if (searchInput) {
-                                console.log('label로 찾은 검색창:', {id: searchInput.id, name: searchInput.name});
+                    if (label.innerText.includes('물건명') || label.innerText.includes('물건 명')) {
+                        const parent = label.closest('tr, div, form');
+                        if (parent) {
+                            const nearby = parent.querySelector('input[type="text"], input:not([type])');
+                            if (nearby && nearby.offsetParent !== null) {
+                                searchInput = nearby;
                                 break;
                             }
                         }
@@ -134,54 +237,49 @@ try:
                 }
             }
             
-            // 방법 3: 모든 text input 중 첫 번째 것 사용 (최후의 수단)
-            if (!searchInput && inputs.length > 0) {
-                searchInput = inputs[0];
-                console.log('기본 검색창 사용:', {id: searchInput.id, name: searchInput.name});
+            // 방법 3: 첫 번째 보이는 text input
+            if (!searchInput && allInputs.length > 0) {
+                searchInput = allInputs[0];
             }
             
             if (!searchInput) {
                 return { 
                     success: false, 
-                    error: 'search input not found',
-                    availableInputs: Array.from(inputs).map(inp => ({
-                        id: inp.id, 
-                        name: inp.name, 
-                        placeholder: inp.placeholder
-                    }))
+                    error: 'no visible input found',
+                    inputCount: allInputs.length
                 };
             }
             
             // 검색어 입력
+            searchInput.focus();
             searchInput.value = '주차장';
             searchInput.dispatchEvent(new Event('input', { bubbles: true }));
             searchInput.dispatchEvent(new Event('change', { bubbles: true }));
             
-            console.log('검색어 입력 완료:', searchInput.value);
-            
             // 검색 버튼 찾기
+            const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], input[type="button"]'));
             let searchBtn = null;
             
-            // 방법 1: 검색 버튼 ID나 class로 찾기
-            const buttons = document.querySelectorAll('button, input[type="submit"], input[type="button"], a.btn');
             for (let btn of buttons) {
-                const text = btn.innerText || btn.value || '';
-                const id = btn.id || '';
-                const className = btn.className || '';
+                const text = (btn.innerText || btn.value || '').trim();
+                const id = (btn.id || '').toLowerCase();
                 
-                if (text.includes('검색') || text.includes('조회') ||
-                    id.toLowerCase().includes('search') || id.toLowerCase().includes('btn') ||
-                    className.includes('search') || className.includes('btn')) {
+                if (text.includes('검색') || text.includes('조회') || 
+                    id.includes('search') || id.includes('btn')) {
                     searchBtn = btn;
-                    console.log('찾은 검색 버튼:', {id: btn.id, text: text});
                     break;
                 }
             }
             
-            // 검색 실행
             if (searchBtn) {
                 searchBtn.click();
-                return { success: true, method: 'button click', buttonId: searchBtn.id };
+                return { 
+                    success: true, 
+                    method: 'button click',
+                    inputId: searchInput.id,
+                    inputName: searchInput.name,
+                    buttonText: searchBtn.innerText || searchBtn.value
+                };
             }
             
             // form submit
@@ -191,30 +289,31 @@ try:
                 return { success: true, method: 'form submit' };
             }
             
-            // Enter 키 시뮬레이션
+            // Enter 키
             const enterEvent = new KeyboardEvent('keydown', {
                 key: 'Enter',
-                code: 'Enter',
                 keyCode: 13,
+                which: 13,
                 bubbles: true
             });
             searchInput.dispatchEvent(enterEvent);
             
-            return { success: true, method: 'enter key simulation' };
+            return { success: true, method: 'enter key' };
         }
     """)
     
-    print(f"검색 결과: {json.dumps(search_result, indent=2, ensure_ascii=False)}")
+    print(f"\n검색 실행: {json.dumps(search_result, ensure_ascii=False)}")
     
     if search_result.get('success'):
-        print(f"✓ 검색 실행: {search_result.get('method')}")
+        print(f"✓ 검색 방법: {search_result.get('method')}")
         time.sleep(10)
+        
+        try:
+            page.wait_for_load_state('networkidle', timeout=20000)
+        except:
+            pass
     else:
-        print(f"⚠️ 검색 실패: {search_result.get('error')}")
-        if 'availableInputs' in search_result:
-            print(f"사용 가능한 input 요소들:")
-            for inp in search_result['availableInputs']:
-                print(f"  - id: {inp.get('id')}, name: {inp.get('name')}, placeholder: {inp.get('placeholder')}")
+        print(f"⚠️ 검색 실패")
     
     print(f"✓ 검색 후 URL: {page.url}")
     
@@ -225,6 +324,9 @@ try:
     page_text = page.evaluate("() => document.body.innerText")
     has_parking = '주차' in page_text or '주차장' in page_text
     print(f"페이지에 '주차장' 텍스트: {'✓' if has_parking else '✗'}")
+    
+    if has_parking:
+        print(f"텍스트 샘플: {page_text[:300]}")
     
     # JavaScript로 테이블 데이터 추출
     table_data = page.evaluate("""
@@ -241,22 +343,19 @@ try:
                 
                 rows.forEach((row, rowIdx) => {
                     const cells = Array.from(row.querySelectorAll('td'));
-                    if (cells.length >= 5) {
+                    if (cells.length >= 3) {
                         const texts = cells.map(cell => cell.innerText.trim());
                         const rowText = texts.join(' ');
                         
-                        // 주차장 키워드 확인
                         if (rowText.includes('주차') || rowText.includes('주차장')) {
                             console.log(`[테이블${tableIdx}-행${rowIdx}] 주차장 발견`);
                             
-                            // 공고 링크 찾기
                             let link = '';
                             const linkElem = row.querySelector('a[href]');
                             if (linkElem) {
                                 link = linkElem.href;
                             }
                             
-                            // 이미지 찾기
                             let imgSrc = '';
                             const imgElem = row.querySelector('img');
                             if (imgElem) {
@@ -266,7 +365,8 @@ try:
                             results.push({
                                 texts: texts,
                                 link: link,
-                                imgSrc: imgSrc
+                                imgSrc: imgSrc,
+                                rowText: rowText
                             });
                         }
                     }
@@ -284,7 +384,7 @@ try:
     for idx, item in enumerate(table_data):
         try:
             texts = item['texts']
-            row_text = ' '.join(texts)
+            row_text = item['rowText']
             
             # 제외 키워드
             if any(kw in row_text for kw in ['일반공고', '공유재산', '위수탁', '취소공고']):
@@ -296,31 +396,37 @@ try:
             
             # 공고번호 추출
             gonggo_no = ''
-            for line in lines:
-                if '-' in line and sum(c.isdigit() for c in line) >= 8:
-                    gonggo_no = line.strip()
+            for text in texts:
+                for line in text.split('\n'):
+                    if '-' in line and sum(c.isdigit() for c in line) >= 8:
+                        gonggo_no = line.strip()
+                        break
+                if gonggo_no:
                     break
             
             # 주소 추출
             address = ''
-            if len(lines) > 1:
-                for i, line in enumerate(lines):
-                    if gonggo_no in line and i + 1 < len(lines):
-                        address = lines[i + 1].strip()
-                        break
-                if not address:
-                    address = lines[1] if len(lines) > 1 else ''
+            for text in texts:
+                if '주차' in text and len(text) > 10:
+                    address = text.strip()
+                    break
+            if not address and len(lines) > 1:
+                address = lines[1]
             
             # 면적 정보
             area = ''
-            for line in lines:
-                if '㎡' in line or 'm²' in line:
-                    area = line.strip()
+            for text in texts:
+                if '㎡' in text or 'm²' in text:
+                    for line in text.split('\n'):
+                        if '㎡' in line or 'm²' in line:
+                            area = line.strip()
+                            break
+                if area:
                     break
             
             parking_info = {
-                '공고번호': gonggo_no,
-                '물건명주소': address,
+                '공고번호': gonggo_no or '번호미확인',
+                '물건명주소': address or row_text[:150],
                 '면적': area,
                 '입찰기간': texts[1] if len(texts) > 1 else '',
                 '최저입찰가': texts[2] if len(texts) > 2 else '',
@@ -330,11 +436,11 @@ try:
                 '이미지': item['imgSrc']
             }
             
-            if gonggo_no:
-                all_parking_data.append(parking_info)
-                print(f"  🅿️ {gonggo_no}")
+            all_parking_data.append(parking_info)
+            print(f"  🅿️ {parking_info['공고번호'][:50]}")
         
         except Exception as e:
+            print(f"  ✗ 파싱 오류: {e}")
             continue
     
     print(f"\n{'='*70}")
@@ -371,14 +477,12 @@ try:
                 ]
             }
             
-            # 면적
             if parking['면적']:
                 blocks["blocks"].append({
                     "type": "section",
                     "text": {"type": "mrkdwn", "text": f"*📏 면적*\n{parking['면적']}"}
                 })
             
-            # 입찰기간, 최저입찰가
             blocks["blocks"].append({
                 "type": "section",
                 "fields": [
@@ -387,7 +491,6 @@ try:
                 ]
             })
             
-            # 물건상태, 조회수
             blocks["blocks"].append({
                 "type": "section",
                 "fields": [
@@ -396,7 +499,6 @@ try:
                 ]
             })
             
-            # 공고 링크
             if parking['공고링크']:
                 blocks["blocks"].append({
                     "type": "section",
