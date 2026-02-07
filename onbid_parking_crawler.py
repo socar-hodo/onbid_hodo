@@ -269,7 +269,7 @@ try:
             });
         });
         
-        return results.slice(0, 5);
+        return results.slice(0, 3);
     }""")
     
     print(f"\n실제 링크 정보 ({len(actual_links)}개 샘플):")
@@ -280,17 +280,13 @@ try:
         print(f"  HTML: {link_info.get('outerHTML')}")
         print(f"  텍스트: {link_info.get('text')}")
     
-    # 8. 첫 번째 링크 클릭 테스트
-    print("\n=== 8. 첫 번째 링크 클릭 테스트 ===")
+    # 8. 첫 번째 링크 클릭 테스트 및 URL 변화 감지
+    print("\n=== 8. 첫 번째 링크 클릭 테스트 및 URL 변화 감지 ===")
     
     if len(actual_links) > 0:
-        # 새 페이지 이벤트 리스너 설정
-        new_page_promise = None
-        
-        def handle_popup(popup):
-            print(f"  → 팝업 열림: {popup.url}")
-        
-        browser.contexts[0].on("page", handle_popup)
+        # 현재 URL 저장
+        original_url = page.url
+        print(f"클릭 전 URL: {original_url}")
         
         # 링크 클릭
         clicked_result = page.evaluate("""() => {
@@ -322,40 +318,158 @@ try:
         print(f"클릭 결과: {json.dumps(clicked_result, ensure_ascii=False)}")
         
         if clicked_result.get('clicked'):
+            # 페이지 변화 대기
+            print("페이지 변화 대기 중...")
+            
+            # 여러 방법으로 대기
+            time.sleep(3)
+            
+            # URL 변화 확인 (최대 10초 대기)
+            for i in range(10):
+                current_url = page.url
+                if current_url != original_url:
+                    print(f"✓ URL 변화 감지! {current_url}")
+                    break
+                time.sleep(1)
+            
+            # 최종 URL
+            final_url = page.url
+            print(f"최종 URL: {final_url}")
+            
+            # DOM 변화 확인
+            try:
+                page.wait_for_selector('div, article, section', timeout=5000)
+                print("✓ 페이지 로딩 완료")
+            except:
+                print("⚠️ 특정 요소 대기 타임아웃")
+            
+            # 페이지 제목 확인
+            page_title = page.evaluate("() => document.title")
+            print(f"페이지 제목: {page_title}")
+            
+            # 페이지 내용 샘플
+            page_content = page.evaluate("() => document.body.innerText.slice(0, 500)")
+            print(f"\n페이지 내용 샘플:")
+            print(page_content)
+            
+            # 현재 페이지의 form action 확인
+            form_action = page.evaluate("""() => {
+                const forms = document.querySelectorAll('form');
+                const actions = [];
+                forms.forEach(form => {
+                    if (form.action) {
+                        actions.push(form.action);
+                    }
+                });
+                return actions;
+            }""")
+            
+            if form_action:
+                print(f"\nForm Actions:")
+                for action in form_action:
+                    print(f"  - {action}")
+            
+            # 현재 페이지의 모든 링크 중 "목록" 버튼 찾기
+            list_button = page.evaluate("""() => {
+                const buttons = document.querySelectorAll('button, a, input[type="button"]');
+                for (let btn of buttons) {
+                    const text = (btn.innerText || btn.value || '').trim();
+                    if (text.includes('목록') || text.includes('뒤로') || text.includes('이전')) {
+                        return {
+                            text: text,
+                            onclick: btn.getAttribute('onclick'),
+                            href: btn.getAttribute('href')
+                        };
+                    }
+                }
+                return null;
+            }""")
+            
+            if list_button:
+                print(f"\n목록 버튼 발견:")
+                print(f"  텍스트: {list_button.get('text')}")
+                print(f"  onclick: {list_button.get('onclick')}")
+                print(f"  href: {list_button.get('href')}")
+            
+            # 스크린샷 저장
+            try:
+                page.screenshot(path='onbid_detail.png', full_page=True)
+                print("\n✓ 상세 페이지 스크린샷: onbid_detail.png")
+            except:
+                pass
+    
+    # 8-2. JavaScript 함수 직접 호출 테스트
+    print("\n=== 8-2. JavaScript 함수 직접 호출 테스트 ===")
+    
+    if len(actual_links) > 0:
+        # 목록 페이지로 돌아가기
+        page.goto(target_url, timeout=60000)
+        time.sleep(3)
+        
+        # 다시 검색
+        page.evaluate("""() => {
+            const searchInput = document.getElementById('searchCltrNm');
+            if (searchInput) {
+                searchInput.value = '주차장';
+                const searchBtn = document.getElementById('searchBtn');
+                if (searchBtn) {
+                    searchBtn.click();
+                }
+            }
+        }""")
+        time.sleep(5)
+        
+        # fn_selectDetail 함수 직접 호출
+        js_call_result = page.evaluate("""() => {
+            if (typeof fn_selectDetail === 'function') {
+                fn_selectDetail('5967635','1541684','860913','10018077','0001','5804020');
+                return { success: true, called: 'fn_selectDetail' };
+            } else {
+                return { success: false, error: 'function not found' };
+            }
+        }""")
+        
+        print(f"JavaScript 함수 호출: {json.dumps(js_call_result, ensure_ascii=False)}")
+        
+        if js_call_result.get('success'):
+            # 함수 호출 후 변화 대기
             time.sleep(5)
             
-            # 열린 모든 페이지 확인
-            all_pages = browser.contexts[0].pages
-            print(f"\n열린 페이지 수: {len(all_pages)}")
+            print(f"함수 호출 후 URL: {page.url}")
             
-            for page_idx, p in enumerate(all_pages):
-                print(f"  페이지 {page_idx}: {p.url}")
+            # 페이지 내용 확인
+            detail_content = page.evaluate("() => document.body.innerText.slice(0, 1000)")
+            print(f"\n상세 페이지 내용 샘플:")
+            print(detail_content)
             
-            # 새 페이지가 열렸다면
-            if len(all_pages) > 1:
-                detail_page = all_pages[-1]
-                detail_url = detail_page.url
-                detail_title = detail_page.evaluate("() => document.title")
-                
-                print(f"\n✓ 상세 페이지 발견!")
-                print(f"  URL: {detail_url}")
-                print(f"  제목: {detail_title}")
-                
-                # URL 패턴 분석
-                if '?' in detail_url:
-                    base_url = detail_url.split('?')[0]
-                    params = detail_url.split('?')[1]
-                    print(f"  베이스 URL: {base_url}")
-                    print(f"  파라미터: {params}")
-                
-                detail_page.close()
-            else:
-                print("⚠️ 새 페이지가 열리지 않음 - 같은 페이지에서 전환된 것으로 보임")
-                print(f"  현재 URL: {page.url}")
+            # 상세 페이지 스크린샷
+            try:
+                page.screenshot(path='onbid_detail_direct.png', full_page=True)
+                print("\n✓ 직접 호출 상세 페이지 스크린샷: onbid_detail_direct.png")
+            except:
+                pass
     
-    # 9. JavaScript로 테이블 데이터 추출
-    print("\n=== 9. 주차장 데이터 크롤링 ===")
+    # 9. 목록으로 돌아가서 데이터 크롤링
+    print("\n=== 9. 목록으로 돌아가서 주차장 데이터 크롤링 ===")
     
+    # 목록 페이지로 돌아가기
+    page.goto(target_url, timeout=60000)
+    time.sleep(3)
+    
+    # 다시 검색
+    page.evaluate("""() => {
+        const searchInput = document.getElementById('searchCltrNm');
+        if (searchInput) {
+            searchInput.value = '주차장';
+            const searchBtn = document.getElementById('searchBtn');
+            if (searchBtn) {
+                searchBtn.click();
+            }
+        }
+    }""")
+    time.sleep(8)
+    
+    # JavaScript로 테이블 데이터 추출
     table_data = page.evaluate("""() => {
         const results = [];
         
