@@ -75,7 +75,6 @@ try:
     print("페이지 로딩 대기 중...")
     time.sleep(10)
     
-    # 동적 콘텐츠 로딩 대기
     try:
         page.wait_for_load_state('domcontentloaded', timeout=30000)
         print("✓ DOM 로딩 완료")
@@ -92,64 +91,19 @@ try:
     
     print(f"✓ 현재 URL: {page.url}")
     
-    # 페이지가 제대로 로드되었는지 확인
-    page_title = page.evaluate("() => document.title")
-    print(f"✓ 페이지 제목: {page_title}")
+    # 4. 물건명 검색창에 주차장 입력
+    print("\n=== 4. 물건명 검색: 주차장 ===")
     
-    # 4. 페이지 구조 상세 확인
-    print("\n=== 4. 페이지 구조 상세 확인 ===")
-    
-    page_structure = page.evaluate("""() => {
-        const allInputs = Array.from(document.querySelectorAll('input'));
-        const allButtons = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"]'));
-        const allForms = Array.from(document.querySelectorAll('form'));
-        
-        return {
-            totalInputs: allInputs.length,
-            visibleInputs: allInputs.filter(inp => inp.offsetParent !== null && inp.type !== 'hidden').map(inp => ({
-                id: inp.id,
-                name: inp.name,
-                type: inp.type,
-                placeholder: inp.placeholder
-            })),
-            buttons: allButtons.filter(btn => btn.offsetParent !== null).map(btn => ({
-                id: btn.id,
-                text: (btn.innerText || btn.value || '').slice(0, 50),
-                className: btn.className
-            })),
-            forms: allForms.length,
-            hasSearchCltrNm: !!document.getElementById('searchCltrNm')
-        };
-    }""")
-    
-    print(f"\n페이지 요소 정보:")
-    print(f"- 전체 input: {page_structure['totalInputs']}개")
-    print(f"- 보이는 input: {len(page_structure['visibleInputs'])}개")
-    print(f"- searchCltrNm 존재: {page_structure['hasSearchCltrNm']}")
-    print(f"- 버튼: {len(page_structure['buttons'])}개")
-    print(f"- form: {page_structure['forms']}개")
-    
-    # 5. 물건명 검색창에 주차장 입력
-    print("\n=== 5. 물건명 검색: 주차장 ===")
-    
-    # searchCltrNm을 사용한 검색
     search_result = page.evaluate("""() => {
         const searchInput = document.getElementById('searchCltrNm');
         
         if (!searchInput) {
-            return {
-                success: false,
-                error: 'searchCltrNm not found'
-            };
+            return { success: false, error: 'searchCltrNm not found' };
         }
-        
-        console.log('검색창 발견:', searchInput.id, searchInput.name);
         
         searchInput.value = '주차장';
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
         searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-        
-        console.log('검색어 입력 완료:', searchInput.value);
         
         let searchBtn = document.getElementById('searchBtn');
         
@@ -158,64 +112,26 @@ try:
             for (let btn of buttons) {
                 const text = (btn.innerText || btn.value || '').trim();
                 const btnId = btn.id || '';
-                const onclick = btn.getAttribute('onclick') || '';
                 
-                if (text.includes('검색') || text.includes('조회') || 
-                    btnId.toLowerCase().includes('search') || 
-                    onclick.includes('search') || onclick.includes('inquiry')) {
+                if (text.includes('검색') || text.includes('조회') || btnId.toLowerCase().includes('search')) {
                     searchBtn = btn;
-                    console.log('검색 버튼 발견:', btn.id, text);
                     break;
                 }
             }
         }
         
         if (searchBtn) {
-            console.log('검색 버튼 클릭:', searchBtn.id);
             searchBtn.click();
-            return {
-                success: true,
-                method: 'button click',
-                buttonId: searchBtn.id,
-                inputId: searchInput.id
-            };
+            return { success: true, method: 'button click' };
         }
         
-        const form = searchInput.closest('form');
-        if (form) {
-            console.log('form submit');
-            form.submit();
-            return {
-                success: true,
-                method: 'form submit',
-                inputId: searchInput.id
-            };
-        }
-        
-        console.log('Enter 키 전송');
-        searchInput.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Enter',
-            code: 'Enter',
-            keyCode: 13,
-            which: 13,
-            bubbles: true
-        }));
-        
-        return {
-            success: true,
-            method: 'enter key',
-            inputId: searchInput.id
-        };
+        return { success: false, error: 'no search button' };
     }""")
     
     print(f"검색 실행 결과: {json.dumps(search_result, ensure_ascii=False)}")
     
     if search_result.get('success'):
         print(f"✓ 검색 방법: {search_result.get('method')}")
-        print(f"  input ID: {search_result.get('inputId')}")
-        if search_result.get('buttonId'):
-            print(f"  button ID: {search_result.get('buttonId')}")
-        
         time.sleep(12)
         
         try:
@@ -223,234 +139,117 @@ try:
             print("✓ 검색 결과 로딩 완료")
         except:
             print("⚠️ 로딩 타임아웃")
-    else:
-        print(f"⚠️ 검색 실패: {search_result.get('error')}")
     
-    print(f"✓ 검색 후 URL: {page.url}")
+    # 5. JavaScript 함수 확인 (디버깅)
+    print("\n=== 5. JavaScript 함수 확인 (디버깅) ===")
     
-    # 6. 주차장 물건 크롤링
-    print("\n=== 6. 주차장 물건 크롤링 ===")
-    
-    # 페이지 텍스트 확인
-    page_text = page.evaluate("() => document.body.innerText")
-    has_parking = '주차' in page_text or '주차장' in page_text
-    print(f"페이지에 '주차장' 텍스트: {'✓' if has_parking else '✗'}")
-    
-    if has_parking:
-        idx = page_text.find('주차')
-        if idx >= 0:
-            print(f"텍스트 샘플 (주차장 포함):")
-            print(page_text[max(0, idx-100):idx+200])
-    
-    # 7. 링크 디버깅 - 실제 링크 정보 수집
-    print("\n=== 7. 링크 디버깅 - 실제 링크 정보 확인 ===")
-    
-    actual_links = page.evaluate("""() => {
-        const results = [];
-        const tables = document.querySelectorAll('table');
-        
-        tables.forEach((table, tableIdx) => {
-            const rows = table.querySelectorAll('tbody tr, tr');
-            
-            rows.forEach((row, rowIdx) => {
-                const rowText = row.innerText || '';
-                
-                if (rowText.includes('주차') || rowText.includes('주차장')) {
-                    const linkElem = row.querySelector('a[href], a[onclick], td a, div a');
-                    if (linkElem) {
-                        results.push({
-                            href: linkElem.getAttribute('href'),
-                            onclick: linkElem.getAttribute('onclick'),
-                            outerHTML: linkElem.outerHTML.slice(0, 200),
-                            text: rowText.slice(0, 100)
-                        });
-                    }
-                }
-            });
-        });
-        
-        return results.slice(0, 3);
+    # fn_movePublicAnnounce 함수 정의 확인
+    func_definition = page.evaluate("""() => {
+        if (typeof fn_movePublicAnnounce === 'function') {
+            return fn_movePublicAnnounce.toString();
+        }
+        return null;
     }""")
     
-    print(f"\n실제 링크 정보 ({len(actual_links)}개 샘플):")
-    for idx, link_info in enumerate(actual_links):
-        print(f"\n[샘플 {idx+1}]")
-        print(f"  href: {link_info.get('href')}")
-        print(f"  onclick: {link_info.get('onclick')}")
-        print(f"  HTML: {link_info.get('outerHTML')}")
-        print(f"  텍스트: {link_info.get('text')}")
+    if func_definition:
+        print(f"fn_movePublicAnnounce 함수 정의:")
+        print(func_definition[:500])  # 처음 500자만 출력
+    else:
+        print("⚠️ fn_movePublicAnnounce 함수를 찾을 수 없음")
     
-    # 8. 첫 번째 링크 클릭 테스트 및 URL 변화 감지
-    print("\n=== 8. 첫 번째 링크 클릭 테스트 및 URL 변화 감지 ===")
+    # 공고등록 버튼 정보 수집
+    announce_buttons = page.evaluate("""() => {
+        const buttons = document.querySelectorAll('a[onclick*="fn_movePublicAnnounce"]');
+        const results = [];
+        
+        for (let i = 0; i < Math.min(3, buttons.length); i++) {
+            const btn = buttons[i];
+            results.push({
+                onclick: btn.getAttribute('onclick'),
+                href: btn.getAttribute('href'),
+                title: btn.getAttribute('title'),
+                text: btn.innerText
+            });
+        }
+        
+        return results;
+    }""")
     
-    if len(actual_links) > 0:
-        # 현재 URL 저장
+    print(f"\n공고등록 버튼 정보 ({len(announce_buttons)}개 샘플):")
+    for idx, btn_info in enumerate(announce_buttons):
+        print(f"\n[버튼 {idx+1}]")
+        print(f"  onclick: {btn_info.get('onclick')}")
+        print(f"  href: {btn_info.get('href')}")
+        print(f"  title: {btn_info.get('title')}")
+        print(f"  text: {btn_info.get('text')}")
+    
+    # 첫 번째 공고등록 버튼 클릭 테스트
+    if len(announce_buttons) > 0:
+        print("\n=== 6. 첫 번째 공고등록 버튼 클릭 테스트 ===")
+        
         original_url = page.url
         print(f"클릭 전 URL: {original_url}")
         
-        # 링크 클릭
-        clicked_result = page.evaluate("""() => {
-            const tables = document.querySelectorAll('table');
-            
-            for (let table of tables) {
-                const rows = table.querySelectorAll('tbody tr, tr');
-                
-                for (let row of rows) {
-                    const rowText = row.innerText || '';
-                    
-                    if (rowText.includes('주차') || rowText.includes('주차장')) {
-                        const linkElem = row.querySelector('a[href], a[onclick]');
-                        if (linkElem) {
-                            linkElem.click();
-                            return {
-                                clicked: true,
-                                href: linkElem.getAttribute('href'),
-                                onclick: linkElem.getAttribute('onclick')
-                            };
-                        }
-                    }
-                }
-            }
-            
-            return { clicked: false };
-        }""")
-        
-        print(f"클릭 결과: {json.dumps(clicked_result, ensure_ascii=False)}")
-        
-        if clicked_result.get('clicked'):
-            # 페이지 변화 대기
-            print("페이지 변화 대기 중...")
-            
-            # 여러 방법으로 대기
-            time.sleep(3)
-            
-            # URL 변화 확인 (최대 10초 대기)
-            for i in range(10):
-                current_url = page.url
-                if current_url != original_url:
-                    print(f"✓ URL 변화 감지! {current_url}")
-                    break
-                time.sleep(1)
-            
-            # 최종 URL
-            final_url = page.url
-            print(f"최종 URL: {final_url}")
-            
-            # DOM 변화 확인
-            try:
-                page.wait_for_selector('div, article, section', timeout=5000)
-                print("✓ 페이지 로딩 완료")
-            except:
-                print("⚠️ 특정 요소 대기 타임아웃")
-            
-            # 페이지 제목 확인
-            page_title = page.evaluate("() => document.title")
-            print(f"페이지 제목: {page_title}")
-            
-            # 페이지 내용 샘플
-            page_content = page.evaluate("() => document.body.innerText.slice(0, 500)")
-            print(f"\n페이지 내용 샘플:")
-            print(page_content)
-            
-            # 현재 페이지의 form action 확인
-            form_action = page.evaluate("""() => {
-                const forms = document.querySelectorAll('form');
-                const actions = [];
-                forms.forEach(form => {
-                    if (form.action) {
-                        actions.push(form.action);
-                    }
-                });
-                return actions;
-            }""")
-            
-            if form_action:
-                print(f"\nForm Actions:")
-                for action in form_action:
-                    print(f"  - {action}")
-            
-            # 현재 페이지의 모든 링크 중 "목록" 버튼 찾기
-            list_button = page.evaluate("""() => {
-                const buttons = document.querySelectorAll('button, a, input[type="button"]');
-                for (let btn of buttons) {
-                    const text = (btn.innerText || btn.value || '').trim();
-                    if (text.includes('목록') || text.includes('뒤로') || text.includes('이전')) {
-                        return {
-                            text: text,
-                            onclick: btn.getAttribute('onclick'),
-                            href: btn.getAttribute('href')
-                        };
-                    }
-                }
-                return null;
-            }""")
-            
-            if list_button:
-                print(f"\n목록 버튼 발견:")
-                print(f"  텍스트: {list_button.get('text')}")
-                print(f"  onclick: {list_button.get('onclick')}")
-                print(f"  href: {list_button.get('href')}")
-            
-            # 스크린샷 저장
-            try:
-                page.screenshot(path='onbid_detail.png', full_page=True)
-                print("\n✓ 상세 페이지 스크린샷: onbid_detail.png")
-            except:
-                pass
-    
-    # 8-2. JavaScript 함수 직접 호출 테스트
-    print("\n=== 8-2. JavaScript 함수 직접 호출 테스트 ===")
-    
-    if len(actual_links) > 0:
-        # 목록 페이지로 돌아가기
-        page.goto(target_url, timeout=60000)
-        time.sleep(3)
-        
-        # 다시 검색
+        # 버튼 클릭
         page.evaluate("""() => {
-            const searchInput = document.getElementById('searchCltrNm');
-            if (searchInput) {
-                searchInput.value = '주차장';
-                const searchBtn = document.getElementById('searchBtn');
-                if (searchBtn) {
-                    searchBtn.click();
-                }
+            const btn = document.querySelector('a[onclick*="fn_movePublicAnnounce"]');
+            if (btn) {
+                btn.click();
             }
         }""")
+        
+        # URL 변화 대기
+        print("URL 변화 대기 중...")
         time.sleep(5)
         
-        # fn_selectDetail 함수 직접 호출
-        js_call_result = page.evaluate("""() => {
-            if (typeof fn_selectDetail === 'function') {
-                fn_selectDetail('5967635','1541684','860913','10018077','0001','5804020');
-                return { success: true, called: 'fn_selectDetail' };
-            } else {
-                return { success: false, error: 'function not found' };
-            }
-        }""")
+        # 새 페이지나 팝업 확인
+        all_pages = browser.contexts[0].pages
+        print(f"\n열린 페이지 수: {len(all_pages)}")
         
-        print(f"JavaScript 함수 호출: {json.dumps(js_call_result, ensure_ascii=False)}")
+        for page_idx, p in enumerate(all_pages):
+            print(f"  페이지 {page_idx}: {p.url}")
         
-        if js_call_result.get('success'):
-            # 함수 호출 후 변화 대기
-            time.sleep(5)
+        # 새 페이지가 열렸다면
+        if len(all_pages) > 1:
+            announce_page = all_pages[-1]
+            announce_url = announce_page.url
+            announce_title = announce_page.evaluate("() => document.title")
             
-            print(f"함수 호출 후 URL: {page.url}")
+            print(f"\n✓ 공고 페이지 발견!")
+            print(f"  URL: {announce_url}")
+            print(f"  제목: {announce_title}")
             
-            # 페이지 내용 확인
-            detail_content = page.evaluate("() => document.body.innerText.slice(0, 1000)")
-            print(f"\n상세 페이지 내용 샘플:")
-            print(detail_content)
+            # URL 패턴 분석
+            if '?' in announce_url:
+                base_url = announce_url.split('?')[0]
+                params = announce_url.split('?')[1]
+                print(f"  베이스 URL: {base_url}")
+                print(f"  파라미터: {params}")
             
-            # 상세 페이지 스크린샷
+            # 스크린샷
             try:
-                page.screenshot(path='onbid_detail_direct.png', full_page=True)
-                print("\n✓ 직접 호출 상세 페이지 스크린샷: onbid_detail_direct.png")
+                announce_page.screenshot(path='onbid_announce.png', full_page=True)
+                print("  스크린샷: onbid_announce.png")
             except:
                 pass
+            
+            announce_page.close()
+        else:
+            final_url = page.url
+            print(f"\n같은 페이지에서 전환: {final_url}")
+            
+            if final_url != original_url:
+                print("✓ URL 변경됨")
+                
+                # URL 패턴 분석
+                if '?' in final_url:
+                    base_url = final_url.split('?')[0]
+                    params = final_url.split('?')[1]
+                    print(f"  베이스 URL: {base_url}")
+                    print(f"  파라미터: {params}")
     
-    # 9. 목록으로 돌아가서 데이터 크롤링
-    print("\n=== 9. 목록으로 돌아가서 주차장 데이터 크롤링 ===")
+    # 7. 목록으로 돌아가서 데이터 크롤링
+    print("\n=== 7. 목록으로 돌아가서 주차장 데이터 크롤링 ===")
     
     # 목록 페이지로 돌아가기
     page.goto(target_url, timeout=60000)
@@ -469,16 +268,13 @@ try:
     }""")
     time.sleep(8)
     
-    # JavaScript로 테이블 데이터 추출
+    # 주차장 데이터 크롤링 (공고등록 버튼 파라미터 포함)
     table_data = page.evaluate("""() => {
         const results = [];
-        
         const tables = document.querySelectorAll('table');
-        console.log('테이블 개수:', tables.length);
         
         tables.forEach((table, tableIdx) => {
             const rows = table.querySelectorAll('tbody tr, tr');
-            console.log('테이블', tableIdx, '행 개수:', rows.length);
             
             rows.forEach((row, rowIdx) => {
                 const cells = Array.from(row.querySelectorAll('td, th'));
@@ -487,32 +283,26 @@ try:
                     const rowText = texts.join(' ');
                     
                     if (rowText.includes('주차') || rowText.includes('주차장')) {
-                        console.log('테이블', tableIdx, '행', rowIdx, '주차장 발견');
+                        // 상세이동 버튼의 title에서 공고번호
+                        let detailBtn = row.querySelector('a.cm_btn_sint3[title], a[title*="-"]');
+                        let gonggoNo = '';
                         
-                        let link = '';
-                        let rawLink = '';
+                        if (detailBtn) {
+                            gonggoNo = detailBtn.getAttribute('title') || '';
+                        }
                         
-                        const linkElem = row.querySelector('a[href], a[onclick], [onclick*="fn_selectDetail"]');
-                        if (linkElem) {
-                            const href = linkElem.getAttribute('href') || '';
-                            const onclick = linkElem.getAttribute('onclick') || '';
-                            
-                            rawLink = href || onclick;
-                            
-                            const searchText = href + ' ' + onclick;
-                            const match = searchText.match(/fn_selectDetail\\(['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\)/);
-                            
+                        // 공고등록 버튼에서 파라미터 추출
+                        let announceBtn = row.querySelector('a[onclick*="fn_movePublicAnnounce"]');
+                        let announceParams = null;
+                        
+                        if (announceBtn) {
+                            const onclick = announceBtn.getAttribute('onclick') || '';
+                            const match = onclick.match(/fn_movePublicAnnounce\\(['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\)/);
                             if (match) {
-                                link = 'https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateView.do?' +
-                                       'cltrNo=' + match[1] +
-                                       '&cltrHstrNo=' + match[2] +
-                                       '&plnmNo=' + match[3] +
-                                       '&pbctNo=' + match[4] +
-                                       '&scrnGrpCd=' + match[5] +
-                                       '&pbctCdtnNo=' + match[6];
-                                console.log('링크 변환:', link);
-                            } else if (href && !href.includes('javascript:')) {
-                                link = href;
+                                announceParams = {
+                                    param1: match[1],
+                                    param2: match[2]
+                                };
                             }
                         }
                         
@@ -524,17 +314,16 @@ try:
                         
                         results.push({
                             texts: texts,
-                            link: link,
-                            rawLink: rawLink,
                             imgSrc: imgSrc,
-                            rowText: rowText
+                            rowText: rowText,
+                            gonggoNoFromBtn: gonggoNo,
+                            announceParams: announceParams
                         });
                     }
                 }
             });
         });
         
-        console.log('총 주차장 발견:', results.length);
         return results;
     }""")
     
@@ -546,22 +335,21 @@ try:
             texts = item['texts']
             row_text = item['rowText']
             
-            print(f"\n[{idx+1}] 처리 중...")
-            
             # 제외 키워드
             if any(kw in row_text for kw in ['일반공고', '공유재산', '위수탁', '취소공고']):
-                print("  → 제외됨 (키워드 필터)")
                 continue
             
-            # 공고번호 추출
-            gonggo_no = ''
-            for text in texts:
-                for line in text.split('\n'):
-                    if '-' in line and sum(c.isdigit() for c in line) >= 8:
-                        gonggo_no = line.strip()
+            # 공고번호
+            gonggo_no = item.get('gonggoNoFromBtn', '')
+            
+            if not gonggo_no:
+                for text in texts:
+                    for line in text.split('\n'):
+                        if '-' in line and sum(c.isdigit() for c in line) >= 8:
+                            gonggo_no = line.strip()
+                            break
+                    if gonggo_no:
                         break
-                if gonggo_no:
-                    break
             
             # 주소/물건명 추출
             address = ''
@@ -596,6 +384,13 @@ try:
                 if area:
                     break
             
+            # 공고 URL 생성 (추측 - 디버깅 결과에 따라 수정 필요)
+            announce_url = ''
+            announce_params = item.get('announceParams')
+            if announce_params:
+                # 여러 가능한 URL 패턴 시도
+                announce_url = f"https://www.onbid.co.kr/op/cta/pbancmn/viewPublicAnnounce.do?pblancSeq={announce_params['param1']}&pblancNo={announce_params['param2']}"
+            
             parking_info = {
                 '공고번호': gonggo_no or '번호미확인',
                 '물건명주소': address,
@@ -604,16 +399,14 @@ try:
                 '최저입찰가': texts[2] if len(texts) > 2 else '',
                 '물건상태': texts[3] if len(texts) > 3 else '',
                 '조회수': texts[4] if len(texts) > 4 else '',
-                '공고링크': item['link'],
-                '원본링크': item['rawLink'],
+                '공고링크': announce_url,
                 '이미지': item['imgSrc']
             }
             
             all_parking_data.append(parking_info)
             print(f"  ✓ 추가: {parking_info['공고번호']} - {parking_info['물건명주소'][:50]}")
-            print(f"     원본: {parking_info['원본링크'][:80]}")
             if parking_info['공고링크']:
-                print(f"     변환: {parking_info['공고링크'][:80]}")
+                print(f"     공고링크: {parking_info['공고링크']}")
         
         except Exception as e:
             print(f"  ✗ 파싱 오류: {e}")
@@ -623,17 +416,9 @@ try:
     print(f"총 {len(all_parking_data)}개 주차장 발견")
     print(f"{'='*70}")
     
-    # 샘플 출력
-    if len(all_parking_data) > 0:
-        print("\n=== 샘플 데이터 ===")
-        sample = all_parking_data[0]
-        for key, value in sample.items():
-            display_value = value[:100] if isinstance(value, str) and len(value) > 100 else value
-            print(f"{key}: {display_value}")
-    
-    # 10. 슬랙 전송
+    # 8. 슬랙 전송
     if slack_webhook_url and len(all_parking_data) > 0:
-        print("\n=== 10. 슬랙 전송 ===")
+        print("\n=== 8. 슬랙 전송 ===")
         
         header = {
             "blocks": [
@@ -676,10 +461,18 @@ try:
                 ]
             })
             
-            if parking['공고링크'] and not parking['공고링크'].startswith('javascript:'):
+            # 공고 링크 (있을 경우)
+            if parking['공고링크']:
                 blocks["blocks"].append({
                     "type": "section",
                     "text": {"type": "mrkdwn", "text": f"🔗 <{parking['공고링크']}|공고 상세보기>"}
+                })
+            else:
+                # 링크가 없으면 검색 방법 안내
+                search_info = f"🔍 온비드 담보물 부동산에서 공고번호로 검색: `{parking['공고번호']}`"
+                blocks["blocks"].append({
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": search_info}
                 })
             
             blocks["blocks"].append({"type": "divider"})
