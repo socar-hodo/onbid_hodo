@@ -140,57 +140,72 @@ try:
         except:
             print("⚠️ 로딩 타임아웃")
     
-    # 5. JavaScript 함수 확인 (디버깅)
-    print("\n=== 5. JavaScript 함수 확인 (디버깅) ===")
+    # 5. 네트워크 요청 모니터링 + 버튼 클릭
+    print("\n=== 5. 네트워크 요청 모니터링 설정 ===")
     
-    # fn_movePublicAnnounce 함수 정의 확인
-    func_definition = page.evaluate("""() => {
+    network_requests = []
+    
+    def handle_request(request):
+        network_requests.append({
+            'url': request.url,
+            'method': request.method,
+            'headers': dict(request.headers),
+            'post_data': request.post_data
+        })
+    
+    page.on('request', handle_request)
+    print("✓ 네트워크 모니터링 활성화")
+    
+    # 6. 첫 번째 공고등록 버튼 클릭 + 상세 분석
+    print("\n=== 6. 첫 번째 공고등록 버튼 클릭 + 상세 분석 ===")
+    
+    # fn_movePublicAnnounce 함수 전체 코드 확인
+    func_full = page.evaluate("""() => {
         if (typeof fn_movePublicAnnounce === 'function') {
             return fn_movePublicAnnounce.toString();
         }
         return null;
     }""")
     
-    if func_definition:
-        print(f"fn_movePublicAnnounce 함수 정의:")
-        print(func_definition[:500])  # 처음 500자만 출력
-    else:
-        print("⚠️ fn_movePublicAnnounce 함수를 찾을 수 없음")
+    if func_full:
+        print(f"\nfn_movePublicAnnounce 전체 코드:")
+        print("=" * 50)
+        print(func_full)
+        print("=" * 50)
     
-    # 공고등록 버튼 정보 수집
-    announce_buttons = page.evaluate("""() => {
-        const buttons = document.querySelectorAll('a[onclick*="fn_movePublicAnnounce"]');
-        const results = [];
-        
-        for (let i = 0; i < Math.min(3, buttons.length); i++) {
-            const btn = buttons[i];
-            results.push({
-                onclick: btn.getAttribute('onclick'),
+    # 첫 번째 공고등록 버튼의 onclick 파라미터 추출
+    first_announce = page.evaluate("""() => {
+        const btn = document.querySelector('a[onclick*="fn_movePublicAnnounce"]');
+        if (btn) {
+            const onclick = btn.getAttribute('onclick') || '';
+            const match = onclick.match(/fn_movePublicAnnounce\(['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]/);
+            return {
+                onclick: onclick,
+                param1: match ? match[1] : null,
+                param2: match ? match[2] : null,
                 href: btn.getAttribute('href'),
-                title: btn.getAttribute('title'),
-                text: btn.innerText
-            });
+                target: btn.getAttribute('target')
+            };
         }
-        
-        return results;
+        return null;
     }""")
     
-    print(f"\n공고등록 버튼 정보 ({len(announce_buttons)}개 샘플):")
-    for idx, btn_info in enumerate(announce_buttons):
-        print(f"\n[버튼 {idx+1}]")
-        print(f"  onclick: {btn_info.get('onclick')}")
-        print(f"  href: {btn_info.get('href')}")
-        print(f"  title: {btn_info.get('title')}")
-        print(f"  text: {btn_info.get('text')}")
-    
-    # 첫 번째 공고등록 버튼 클릭 테스트
-    if len(announce_buttons) > 0:
-        print("\n=== 6. 첫 번째 공고등록 버튼 클릭 테스트 ===")
+    if first_announce:
+        print(f"\n첫 번째 공고등록 버튼 정보:")
+        print(f"  onclick: {first_announce['onclick']}")
+        print(f"  param1: {first_announce['param1']}")
+        print(f"  param2: {first_announce['param2']}")
+        print(f"  href: {first_announce['href']}")
+        print(f"  target: {first_announce['target']}")
         
-        original_url = page.url
-        print(f"클릭 전 URL: {original_url}")
+        # 네트워크 요청 초기화
+        network_requests.clear()
+        
+        # 새 페이지 감지 설정
+        popup_promise = page.context.expect_page() if first_announce.get('target') == '_blank' else None
         
         # 버튼 클릭
+        print("\n버튼 클릭...")
         page.evaluate("""() => {
             const btn = document.querySelector('a[onclick*="fn_movePublicAnnounce"]');
             if (btn) {
@@ -198,58 +213,114 @@ try:
             }
         }""")
         
-        # URL 변화 대기
-        print("URL 변화 대기 중...")
         time.sleep(5)
         
-        # 새 페이지나 팝업 확인
-        all_pages = browser.contexts[0].pages
-        print(f"\n열린 페이지 수: {len(all_pages)}")
+        # 새 페이지가 열렸는지 확인
+        all_pages = page.context.pages
+        print(f"\n현재 열린 페이지 수: {len(all_pages)}")
         
-        for page_idx, p in enumerate(all_pages):
-            print(f"  페이지 {page_idx}: {p.url}")
+        # 네트워크 요청 분석
+        print(f"\n캡처된 네트워크 요청: {len(network_requests)}개")
+        for idx, req in enumerate(network_requests[-10:], 1):  # 최근 10개만
+            print(f"\n[요청 {idx}]")
+            print(f"  Method: {req['method']}")
+            print(f"  URL: {req['url']}")
+            if req['post_data']:
+                print(f"  POST Data: {req['post_data'][:200]}")
         
-        # 새 페이지가 열렸다면
+        # 새 페이지나 팝업 처리
         if len(all_pages) > 1:
             announce_page = all_pages[-1]
-            announce_url = announce_page.url
-            announce_title = announce_page.evaluate("() => document.title")
-            
-            print(f"\n✓ 공고 페이지 발견!")
-            print(f"  URL: {announce_url}")
-            print(f"  제목: {announce_title}")
-            
-            # URL 패턴 분석
-            if '?' in announce_url:
-                base_url = announce_url.split('?')[0]
-                params = announce_url.split('?')[1]
-                print(f"  베이스 URL: {base_url}")
-                print(f"  파라미터: {params}")
+            print(f"\n✓ 새 페이지 발견!")
+            print(f"  URL: {announce_page.url}")
+            print(f"  Title: {announce_page.evaluate('() => document.title')}")
             
             # 스크린샷
             try:
-                announce_page.screenshot(path='onbid_announce.png', full_page=True)
-                print("  스크린샷: onbid_announce.png")
+                announce_page.screenshot(path='onbid_announce_page.png', full_page=True)
+                print("  스크린샷 저장: onbid_announce_page.png")
             except:
                 pass
             
             announce_page.close()
         else:
-            final_url = page.url
-            print(f"\n같은 페이지에서 전환: {final_url}")
+            # 같은 페이지에서 내용이 변경되었는지 확인
+            current_url = page.url
+            current_title = page.evaluate("() => document.title")
             
-            if final_url != original_url:
-                print("✓ URL 변경됨")
+            print(f"\n현재 페이지:")
+            print(f"  URL: {current_url}")
+            print(f"  Title: {current_title}")
+            
+            # 페이지 내 iframe이나 모달 확인
+            modals_or_iframes = page.evaluate("""() => {
+                const results = {
+                    modals: [],
+                    iframes: []
+                };
                 
-                # URL 패턴 분석
-                if '?' in final_url:
-                    base_url = final_url.split('?')[0]
-                    params = final_url.split('?')[1]
-                    print(f"  베이스 URL: {base_url}")
-                    print(f"  파라미터: {params}")
+                // 모달 찾기
+                const modals = document.querySelectorAll('[class*="modal"], [class*="popup"], [class*="layer"]');
+                modals.forEach(modal => {
+                    if (modal.offsetWidth > 0 && modal.offsetHeight > 0) {
+                        results.modals.push({
+                            className: modal.className,
+                            id: modal.id,
+                            display: window.getComputedStyle(modal).display
+                        });
+                    }
+                });
+                
+                // iframe 찾기
+                const iframes = document.querySelectorAll('iframe');
+                iframes.forEach(iframe => {
+                    results.iframes.push({
+                        src: iframe.src,
+                        id: iframe.id,
+                        name: iframe.name
+                    });
+                });
+                
+                return results;
+            }""")
+            
+            if modals_or_iframes['modals']:
+                print(f"\n  발견된 모달: {len(modals_or_iframes['modals'])}개")
+                for modal in modals_or_iframes['modals'][:3]:
+                    print(f"    - class: {modal['className']}, id: {modal['id']}")
+            
+            if modals_or_iframes['iframes']:
+                print(f"\n  발견된 iframe: {len(modals_or_iframes['iframes'])}개")
+                for iframe in modals_or_iframes['iframes']:
+                    print(f"    - src: {iframe['src']}, id: {iframe['id']}")
     
-    # 7. 목록으로 돌아가서 데이터 크롤링
-    print("\n=== 7. 목록으로 돌아가서 주차장 데이터 크롤링 ===")
+    # 7. Form 기반 이동 방식 확인
+    print("\n=== 7. Form 기반 이동 방식 확인 ===")
+    
+    form_info = page.evaluate("""() => {
+        const forms = document.querySelectorAll('form');
+        const results = [];
+        
+        forms.forEach(form => {
+            results.push({
+                id: form.id,
+                name: form.name,
+                action: form.action,
+                method: form.method,
+                target: form.target
+            });
+        });
+        
+        return results;
+    }""")
+    
+    if form_info:
+        print(f"페이지 내 Form: {len(form_info)}개")
+        for form in form_info[:5]:
+            print(f"  - id: {form['id']}, action: {form['action']}, method: {form['method']}, target: {form['target']}")
+    
+    # 8. 목록으로 돌아가서 데이터 크롤링
+    print("\n=== 8. 목록으로 돌아가서 주차장 데이터 크롤링 ===")
     
     # 목록 페이지로 돌아가기
     page.goto(target_url, timeout=60000)
@@ -297,7 +368,7 @@ try:
                         
                         if (announceBtn) {
                             const onclick = announceBtn.getAttribute('onclick') || '';
-                            const match = onclick.match(/fn_movePublicAnnounce\\(['"](\\d+)['"]\\s*,\\s*['"](\\d+)['"]\\)/);
+                            const match = onclick.match(/fn_movePublicAnnounce\(['"](\d+)['"]\s*,\s*['"](\d+)['"]\)/);
                             if (match) {
                                 announceParams = {
                                     param1: match[1],
@@ -416,9 +487,9 @@ try:
     print(f"총 {len(all_parking_data)}개 주차장 발견")
     print(f"{'='*70}")
     
-    # 8. 슬랙 전송
+    # 9. 슬랙 전송
     if slack_webhook_url and len(all_parking_data) > 0:
-        print("\n=== 8. 슬랙 전송 ===")
+        print("\n=== 9. 슬랙 전송 ===")
         
         header = {
             "blocks": [
