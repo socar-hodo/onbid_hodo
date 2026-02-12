@@ -7,9 +7,9 @@ from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta, timezone
 
 KST = timezone(timedelta(hours=9))
-current_time = datetime.now(KST)
+now = datetime.now(KST)
 
-if current_time.weekday() >= 5:
+if now.weekday() >= 5:
     exit(0)
 
 slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
@@ -31,7 +31,7 @@ browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
 page = browser.new_page()
 
 try:
-    page.goto("https://www.onbid.co.kr", timeout=60000)
+    page.goto("https://www.onbid.co.kr")
     time.sleep(3)
 
     if onbid_id and onbid_pw:
@@ -42,17 +42,14 @@ try:
         page.click("text=로그인")
         time.sleep(5)
 
-    target_url = "https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateList.do"
-    page.goto(target_url)
+    target = "https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateList.do"
+    page.goto(target)
     time.sleep(5)
 
     page.evaluate("""
         () => {
             const input = document.getElementById("searchCltrNm");
-            if (input) {
-                input.value = "주차장";
-                input.dispatchEvent(new Event("change", { bubbles: true }));
-            }
+            if (input) input.value = "주차장";
             const btn = document.getElementById("searchBtn");
             if (btn) btn.click();
         }
@@ -63,71 +60,75 @@ try:
 
     while True:
 
-        table_data = page.evaluate("""
-        () => {
+        rows = page.query_selector_all("tbody tr")
 
-            const results = [];
-            const rows = document.querySelectorAll("tbody tr");
+        for row in rows:
 
-            rows.forEach(row => {
+            text = row.inner_text()
 
-                const fullText = row.innerText;
-
-                if (!fullText.includes("주차")) return;
-
-                const titleBtn = row.querySelector("a[title*='-']");
-                if (!titleBtn) return;
-
-                const gonggoNo = titleBtn.getAttribute("title") || "";
-
-                results.push({
-                    gonggoNo,
-                    fullText
-                });
-            });
-
-            return results;
-        }
-        """)
-
-        for item in table_data:
-
-            raw_no = item["gonggoNo"]
-
-            # 🔥 공고번호 정제 (새 창 열기 제거)
-            match = re.search(r"\d{4}-\d{4}-\d{6}", raw_no)
-            if not match:
+            if "주차" not in text:
                 continue
 
-            gonggo_no = match.group()
+            text = text.replace("지도보기", "").replace("새 창 열기", "")
+
+            gonggo_match = re.search(r"\d{4}-\d{4}-\d{6}", text)
+            if not gonggo_match:
+                continue
+
+            gonggo_no = gonggo_match.group()
 
             if gonggo_no in sent_gonggos:
                 continue
 
-            text = item["fullText"]
+            # 주소 (공고번호 바로 아래 줄)
+            lines = [l.strip() for l in text.split("\n") if l.strip()]
+            address = ""
+            for i, line in enumerate(lines):
+                if gonggo_no in line and i + 1 < len(lines):
+                    address = lines[i + 1]
+                    break
 
-            # 🔥 필요없는 텍스트 제거
-            text = text.replace("지도보기", "")
-            text = text.replace("새 창 열기", "")
-            text = re.sub(r"\s+", " ", text).strip()
+            # 면적
+            area = ""
+            area_match = re.search(r"\[.*?㎡\]", text)
+            if area_match:
+                area = area_match.group()
 
-            # 상세 링크
+            # 입찰기간
+            period_match = re.findall(r"\d{4}-\d{2}-\d{2}.*?\d{2}:\d{2}", text)
+            period = " ~ ".join(period_match) if period_match else "-"
+
+            # 최저입찰가
+            price_match = re.search(r"\d{1,3}(,\d{3})+", text)
+            price = price_match.group() if price_match else "-"
+
+            # 조회수
+            view_match = re.search(r"조회수\s*(\d+)", text)
+            view = view_match.group(1) if view_match else "-"
+
+            # 물건상태
+            status_match = re.search(r"(인터넷입찰진행중|일반경쟁|제한경쟁)", text)
+            status = status_match.group() if status_match else "-"
+
             detail_url = (
                 "https://www.onbid.co.kr/op/cta/cltrdtl/"
                 f"collateralDetailRealEstateList.do?search={gonggo_no}"
             )
 
             all_parking_data.append({
-                "공고번호": gonggo_no,
-                "본문": text,
-                "공고링크": detail_url
+                "gonggo": gonggo_no,
+                "address": address,
+                "area": area,
+                "period": period,
+                "price": price,
+                "status": status,
+                "view": view,
+                "link": detail_url
             })
 
             sent_gonggos.add(gonggo_no)
 
-        next_page = page_num + 1
-        next_btn = page.locator(f"a[onclick*='fn_paging({next_page})']")
-
+        next_btn = page.locator(f"a[onclick*='fn_paging({page_num+1})']")
         if next_btn.count() == 0:
             break
 
@@ -136,7 +137,7 @@ try:
         page_num += 1
 
     # ==============================
-    # Slack 출력
+    # Slack 출력 (깔끔한 2열 구조)
     # ==============================
 
     if slack_webhook_url and all_parking_data:
@@ -166,7 +167,7 @@ try:
                         "type": "header",
                         "text": {
                             "type": "plain_text",
-                            "text": f"🅿️ {idx}. {item['공고번호']}",
+                            "text": f"🅿️ {idx}. {item['address']}",
                             "emoji": True
                         }
                     },
@@ -174,14 +175,32 @@ try:
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": item["본문"]
+                            "text": f"*🔢 공고번호*\n{item['gonggo']}"
                         }
+                    },
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": f"*📏 면적*\n{item['area']}"}
+                    },
+                    {
+                        "type": "section",
+                        "fields": [
+                            {"type": "mrkdwn", "text": f"*📅 입찰기간*\n{item['period']}"},
+                            {"type": "mrkdwn", "text": f"*💰 최저입찰가*\n{item['price']}"}
+                        ]
+                    },
+                    {
+                        "type": "section",
+                        "fields": [
+                            {"type": "mrkdwn", "text": f"*🏷 물건상태*\n{item['status']}"},
+                            {"type": "mrkdwn", "text": f"*👁 조회수*\n{item['view']}"}
+                        ]
                     },
                     {
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"🔗 <{item['공고링크']}|공고 상세보기>"
+                            "text": f"🔗 <{item['link']}|공고 상세보기>"
                         }
                     },
                     {"type": "divider"}
@@ -192,11 +211,12 @@ try:
             time.sleep(1)
 
     with open(SAVED_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(sent_gonggos), f, ensure_ascii=False, indent=2)
+        json.dump(list(sent_gonggos), f, ensure_ascii=False)
 
 finally:
     browser.close()
     playwright.stop()
+
 
 
 
