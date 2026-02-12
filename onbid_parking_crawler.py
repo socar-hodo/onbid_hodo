@@ -44,11 +44,15 @@ browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
 page = browser.new_page()
 
 try:
+    # ==============================
     # 1. 온비드 접속
+    # ==============================
     page.goto("https://www.onbid.co.kr", timeout=60000)
     time.sleep(3)
 
+    # ==============================
     # 2. 로그인
+    # ==============================
     if onbid_id and onbid_pw:
         page.click("text=로그인")
         time.sleep(2)
@@ -57,12 +61,16 @@ try:
         page.click("text=로그인")
         time.sleep(5)
 
-    # 3. 담보물 부동산 페이지 이동
+    # ==============================
+    # 3. 담보물 부동산 이동
+    # ==============================
     target_url = "https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateList.do"
     page.goto(target_url)
     time.sleep(5)
 
+    # ==============================
     # 4. "주차장" 검색
+    # ==============================
     page.evaluate("""
         () => {
             const input = document.getElementById("searchCltrNm");
@@ -77,7 +85,7 @@ try:
     time.sleep(8)
 
     # ==============================
-    # 전체 페이지 순회
+    # 5. 전체 페이지 순회 크롤링
     # ==============================
 
     page_num = 1
@@ -88,28 +96,38 @@ try:
 
         table_data = page.evaluate("""
         () => {
+
             const results = [];
             const rows = document.querySelectorAll("tbody tr");
 
             rows.forEach(row => {
 
-                const cells = Array.from(row.querySelectorAll("td"));
-                if (cells.length < 5) return;
-
-                const texts = cells.map(td => td.innerText.trim());
-                const rowText = texts.join(" ");
-
-                if (!rowText.includes("주차")) return;
-
-                let gonggoNo = "";
+                // 공고번호는 title 속성에서만 가져오기
                 const titleBtn = row.querySelector("a[title*='-']");
-                if (titleBtn) {
-                    gonggoNo = titleBtn.getAttribute("title") || "";
-                }
+                if (!titleBtn) return;
+
+                const gonggoNo = titleBtn.getAttribute("title") || "";
+
+                // 주소는 공고번호 링크가 있는 td의 텍스트에서 추출
+                const parentTd = titleBtn.closest("td");
+                if (!parentTd) return;
+
+                let fullText = parentTd.innerText;
+
+                // 불필요한 텍스트 제거
+                fullText = fullText
+                    .replace("지도보기", "")
+                    .replace("새 창 열기", "")
+                    .replace(gonggoNo, "")
+                    .replace(/\\s+/g, " ")
+                    .trim();
+
+                // 주차장 관련만 남김
+                if (!fullText.includes("주차")) return;
 
                 results.push({
-                    texts,
-                    gonggoNo
+                    gonggoNo,
+                    address: fullText
                 });
             });
 
@@ -117,24 +135,14 @@ try:
         }
         """)
 
+        # 신규 공고만 저장
         for item in table_data:
 
             gonggo_no = item["gonggoNo"]
-            if not gonggo_no:
-                continue
+            address = item["address"]
 
             if gonggo_no in sent_gonggos:
                 continue
-
-            texts = item["texts"]
-
-            # 안전한 값 추출
-            address = texts[0] if len(texts) > 0 else ""
-            area = next((t for t in texts if "㎡" in t), "")
-            bid_period = next((t for t in texts if "~" in t), "")
-            price = next((t for t in texts if "," in t and "원" not in t), "")
-            status = next((t for t in texts if "진행" in t or "경쟁" in t), "")
-            view_cnt = next((t for t in texts if t.isdigit()), "")
 
             # ✅ 세션 없이 열리는 상세 링크
             detail_url = (
@@ -145,18 +153,16 @@ try:
             parking_info = {
                 "공고번호": gonggo_no,
                 "물건명주소": address,
-                "면적": area,
-                "입찰기간": bid_period,
-                "최저입찰가": price,
-                "물건상태": status,
-                "조회수": view_cnt,
                 "공고링크": detail_url
             }
 
             all_parking_data.append(parking_info)
             sent_gonggos.add(gonggo_no)
 
+        # ==============================
         # 다음 페이지 이동
+        # ==============================
+
         next_page = page_num + 1
         next_btn = page.locator(f"a[onclick*='fn_paging({next_page})']")
 
@@ -170,7 +176,7 @@ try:
     print(f"신규 공고 {len(all_parking_data)}개 발견")
 
     # ==============================
-    # Slack 전송 (처음 구조 유지)
+    # 6. Slack 전송 (깔끔한 구조)
     # ==============================
 
     if slack_webhook_url and len(all_parking_data) > 0:
@@ -179,7 +185,7 @@ try:
             "blocks": [
                 {"type": "header",
                  "text": {"type": "plain_text",
-                          "text": "🆕 온비드 주차장 물건",
+                          "text": "🆕 온비드 신규 주차장 공고",
                           "emoji": True}},
                 {"type": "divider"}
             ]
@@ -192,55 +198,42 @@ try:
 
             blocks = {
                 "blocks": [
-                    {"type": "header",
-                     "text": {"type": "plain_text",
-                              "text": f"🅿️ {idx}. {parking['물건명주소'][:50]}",
-                              "emoji": True}},
-                    {"type": "section",
-                     "text": {"type": "mrkdwn",
-                              "text": f"*🔢 공고번호*\n{parking['공고번호']}"}}
+                    {
+                        "type": "header",
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"🅿️ {idx}. {parking['물건명주소'][:60]}",
+                            "emoji": True
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*🔢 공고번호*\n{parking['공고번호']}"
+                        }
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"🔗 <{parking['공고링크']}|공고 상세보기>"
+                        }
+                    },
+                    {"type": "divider"}
                 ]
             }
-
-            if parking["면적"]:
-                blocks["blocks"].append({
-                    "type": "section",
-                    "text": {"type": "mrkdwn",
-                             "text": f"*📏 면적*\n{parking['면적']}"}
-                })
-
-            blocks["blocks"].append({
-                "type": "section",
-                "fields": [
-                    {"type": "mrkdwn",
-                     "text": f"*📅 입찰기간*\n{parking['입찰기간'] or '-'}"},
-                    {"type": "mrkdwn",
-                     "text": f"*💰 최저입찰가*\n{parking['최저입찰가'] or '-'}"}
-                ]
-            })
-
-            blocks["blocks"].append({
-                "type": "section",
-                "fields": [
-                    {"type": "mrkdwn",
-                     "text": f"*🏷️ 물건상태*\n{parking['물건상태'] or '-'}"},
-                    {"type": "mrkdwn",
-                     "text": f"*👁️ 조회수*\n{parking['조회수'] or '-'}"}
-                ]
-            })
-
-            blocks["blocks"].append({
-                "type": "section",
-                "text": {"type": "mrkdwn",
-                         "text": f"🔗 <{parking['공고링크']}|공고 상세보기>"}
-            })
-
-            blocks["blocks"].append({"type": "divider"})
 
             requests.post(slack_webhook_url, json=blocks)
             time.sleep(1)
 
-    # 신규 공고 저장
+    else:
+        print("오늘은 신규 공고 없음")
+
+    # ==============================
+    # 7. 신규 공고 저장
+    # ==============================
+
     with open(SAVED_FILE, "w", encoding="utf-8") as f:
         json.dump(list(sent_gonggos), f, ensure_ascii=False, indent=2)
 
@@ -248,5 +241,6 @@ finally:
     browser.close()
     playwright.stop()
     print("완료")
+
 
 
