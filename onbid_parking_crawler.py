@@ -12,18 +12,15 @@ from datetime import datetime, timedelta, timezone
 KST = timezone(timedelta(hours=9))
 now = datetime.now(KST)
 
-# 평일만 실행 (원하면 주석 처리 가능)
-if now.weekday() >= 5:
-    print("주말이라 종료")
-    exit(0)
-
 slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
 onbid_id = os.environ.get("ONBID_ID", "")
 onbid_pw = os.environ.get("ONBID_PW", "")
 
 SAVED_FILE = "sent_gonggo.json"
 
+# ===============================
 # 기존 발송 공고 불러오기
+# ===============================
 if os.path.exists(SAVED_FILE):
     with open(SAVED_FILE, "r", encoding="utf-8") as f:
         sent_gonggos = set(json.load(f))
@@ -31,6 +28,26 @@ else:
     sent_gonggos = set()
 
 all_parking_data = []
+total_found = 0
+
+# ===============================
+# Slack 함수
+# ===============================
+def slack_send(blocks):
+    if slack_webhook_url:
+        requests.post(slack_webhook_url, json=blocks)
+        time.sleep(1)
+
+def slack_error(msg):
+    slack_send({
+        "blocks": [
+            {"type": "header",
+             "text": {"type": "plain_text", "text": "⚠️ 온비드 크롤러 오류", "emoji": True}},
+            {"type": "section",
+             "text": {"type": "mrkdwn", "text": f"```{msg}```"}}
+        ]
+    })
+
 
 # ===============================
 # Playwright 시작
@@ -88,6 +105,8 @@ try:
             if "주차" not in full_text:
                 continue
 
+            total_found += 1
+
             # 상세이동 링크 찾기
             detail_a = row.query_selector("a[href*='fn_selectDetail']")
             if not detail_a:
@@ -100,17 +119,18 @@ try:
             if len(nums) != 6:
                 continue
 
-            # 공고번호는 title 속성에서 추출 (깨끗함)
+            # 공고번호는 title 속성에서 추출
             gonggo_no = detail_a.get_attribute("title")
             if not gonggo_no:
                 continue
 
             gonggo_no = re.search(r"\d{4}-\d{4}-\d{6}", gonggo_no).group()
 
+            # 중복이면 스킵
             if gonggo_no in sent_gonggos:
                 continue
 
-            # 주소 추출 (공고번호 다음 줄)
+            # 주소 추출
             lines = [l.strip() for l in full_text.split("\n") if l.strip()]
             address = ""
             for i, line in enumerate(lines):
@@ -165,7 +185,7 @@ try:
 
             sent_gonggos.add(gonggo_no)
 
-        # 다음 페이지
+        # 다음 페이지 버튼
         next_btn = page.locator(f"a[onclick*='fn_paging({page_num+1})']")
         if next_btn.count() == 0:
             break
@@ -175,81 +195,101 @@ try:
         page_num += 1
 
     # ===============================
-    # Slack 전송 (예쁜 2열 구조 유지)
+    # Slack 결과 발송
     # ===============================
-    if slack_webhook_url and all_parking_data:
 
-        header = {
+    신규건수 = len(all_parking_data)
+
+    # 1) 신규 있으면 카드 발송
+    if 신규건수 > 0:
+        slack_send({
             "blocks": [
-                {
-                    "type": "header",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "🆕 온비드 신규 주차장 공고",
-                        "emoji": True
-                    }
-                },
+                {"type": "header",
+                 "text": {"type": "plain_text",
+                          "text": "🆕 온비드 신규 주차장 공고",
+                          "emoji": True}},
                 {"type": "divider"}
             ]
-        }
-
-        requests.post(slack_webhook_url, json=header)
-        time.sleep(1)
+        })
 
         for idx, item in enumerate(all_parking_data[:20], 1):
-
-            blocks = {
+            slack_send({
                 "blocks": [
-                    {
-                        "type": "header",
-                        "text": {
-                            "type": "plain_text",
-                            "text": f"🅿️ {idx}. {item['address']}",
-                            "emoji": True
-                        }
-                    },
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"*🔢 공고번호*\n{item['gonggo']}"}
-                    },
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"*📏 면적*\n{item['area']}"}
-                    },
-                    {
-                        "type": "section",
-                        "fields": [
-                            {"type": "mrkdwn", "text": f"*📅 입찰기간*\n{item['period']}"},
-                            {"type": "mrkdwn", "text": f"*💰 최저입찰가*\n{item['price']}"}
-                        ]
-                    },
-                    {
-                        "type": "section",
-                        "fields": [
-                            {"type": "mrkdwn", "text": f"*🏷 물건상태*\n{item['status']}"},
-                            {"type": "mrkdwn", "text": f"*👁 조회수*\n{item['view']}"}
-                        ]
-                    },
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"🔗 <{item['link']}|공고 상세보기>"}
-                    },
+                    {"type": "header",
+                     "text": {"type": "plain_text",
+                              "text": f"🅿️ {idx}. {item['address']}",
+                              "emoji": True}},
+                    {"type": "section",
+                     "text": {"type": "mrkdwn",
+                              "text": f"*🔢 공고번호*\n{item['gonggo']}"}},
+                    {"type": "section",
+                     "text": {"type": "mrkdwn",
+                              "text": f"*📏 면적*\n{item['area']}"}},
+                    {"type": "section",
+                     "fields": [
+                         {"type": "mrkdwn",
+                          "text": f"*📅 입찰기간*\n{item['period']}"},
+                         {"type": "mrkdwn",
+                          "text": f"*💰 최저입찰가*\n{item['price']}"}
+                     ]},
+                    {"type": "section",
+                     "fields": [
+                         {"type": "mrkdwn",
+                          "text": f"*🏷 물건상태*\n{item['status']}"},
+                         {"type": "mrkdwn",
+                          "text": f"*👁 조회수*\n{item['view']}"}
+                     ]},
+                    {"type": "section",
+                     "text": {"type": "mrkdwn",
+                              "text": f"🔗 <{item['link']}|공고 상세보기>"}},
                     {"type": "divider"}
                 ]
-            }
+            })
 
-            requests.post(slack_webhook_url, json=blocks)
-            time.sleep(1)
+    # 2) 신규 없으면 안내
+    else:
+        slack_send({
+            "blocks": [
+                {"type": "header",
+                 "text": {"type": "plain_text",
+                          "text": "📭 오늘 신규 주차장 공고 없음",
+                          "emoji": True}},
+                {"type": "section",
+                 "text": {"type": "mrkdwn",
+                          "text": f"📅 {now.strftime('%Y-%m-%d %H:%M')} (KST)\n오늘 신규 공고가 없습니다."}}
+            ]
+        })
+
+    # 3) 항상 마지막 요약 리포트
+    slack_send({
+        "blocks": [
+            {"type": "divider"},
+            {"type": "section",
+             "text": {"type": "mrkdwn",
+                      "text": f"""
+📊 *온비드 크롤링 요약*
+
+- 총 검색 건수: *{total_found}건*
+- 신규 공고: *{신규건수}건*
+- 누적 발송 기록: *{len(sent_gonggos)}건*
+
+⏰ 실행시간: {now.strftime('%Y-%m-%d %H:%M')} (KST)
+""" }}
+        ]
+    })
 
     # 발송 공고 저장
     with open(SAVED_FILE, "w", encoding="utf-8") as f:
         json.dump(list(sent_gonggos), f, ensure_ascii=False)
+
+except Exception as e:
+    slack_error(str(e))
+    raise
 
 finally:
     browser.close()
     playwright.stop()
 
 print("===== 완료 =====")
-
 
 
