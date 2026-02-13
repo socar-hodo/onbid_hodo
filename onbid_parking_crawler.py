@@ -10,45 +10,39 @@ from playwright.sync_api import sync_playwright
 # 설정
 # =========================
 KST = timezone(timedelta(hours=9))
-
-TEST_MODE = False   # True면 중복 무시하고 전부 발송
-
+TEST_MODE = False
 SENT_FILE = "sent_gonggo.json"
 
-ONBID_URL = "https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateList.do"
+LIST_URL = "https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateList.do"
+SEARCH_URL = "https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateList.do?search="
 
 # =========================
-# sent_gonggo.json 로드
+# 중복 저장
 # =========================
 def load_sent():
     if not os.path.exists(SENT_FILE):
         return []
-
     try:
         with open(SENT_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except:
         return []
 
-def save_sent(sent_list):
+def save_sent(data):
     with open(SENT_FILE, "w", encoding="utf-8") as f:
-        json.dump(sent_list, f, ensure_ascii=False, indent=2)
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-# =========================
-# Slack 전송
-# =========================
 def send_slack(webhook, blocks):
     requests.post(webhook, json={"blocks": blocks})
     time.sleep(0.5)
 
 # =========================
-# 실행 시작
+# 시작
 # =========================
 current_time = datetime.now(KST)
 
-weekday = current_time.weekday()
-if weekday >= 5:
-    print("주말에는 실행 안 함")
+if current_time.weekday() >= 5:
+    print("주말 실행 안함")
     exit(0)
 
 slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
@@ -56,13 +50,13 @@ onbid_id = os.environ.get("ONBID_ID")
 onbid_pw = os.environ.get("ONBID_PW")
 
 sent_gonggos = load_sent()
-print(f"기존 발송 공고 수: {len(sent_gonggos)}")
+print(f"기존 발송 기록: {len(sent_gonggos)}")
 
 all_results = []
 new_results = []
 
 # =========================
-# Playwright 시작
+# 크롤링
 # =========================
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
@@ -72,58 +66,47 @@ with sync_playwright() as p:
     page.goto("https://www.onbid.co.kr", timeout=60000)
     time.sleep(3)
 
-    # 로그인
-    print("로그인 시도")
+    print("로그인")
     page.click("text=로그인")
     time.sleep(2)
-
     page.fill("input[type=text]", onbid_id)
     page.fill("input[type=password]", onbid_pw)
-
     page.click("button:has-text('로그인')")
     time.sleep(4)
 
-    print("로그인 완료")
+    page.goto(LIST_URL)
+    time.sleep(4)
 
-    # 부동산 담보물 페이지 이동
-    page.goto(ONBID_URL, timeout=60000)
-    time.sleep(5)
-
-    # 검색어 입력
     page.fill("#searchCltrNm", "주차장")
     page.click("#searchBtn")
     time.sleep(5)
 
     print("검색 완료")
 
-    # =========================
-    # 페이지네이션 수집
-    # =========================
     page_no = 1
 
     while True:
-        print(f"{page_no}페이지 수집 중...")
+        print(f"{page_no}페이지 수집")
 
         rows = page.query_selector_all("table tbody tr")
 
         for row in rows:
-            row_text = row.inner_text().strip()
-            if "주차" not in row_text:
+            text = row.inner_text()
+
+            if "주차" not in text:
                 continue
 
-            # 공고번호 추출
-            gonggo_match = re.search(r"\d{4}-\d{4}-\d{6}", row_text)
+            gonggo_match = re.search(r"\d{4}-\d{4}-\d{6}", text)
             if not gonggo_match:
                 continue
 
             gonggo_no = gonggo_match.group(0)
 
-            # TEST_MODE 아니면 중복 제거
             if (not TEST_MODE) and (gonggo_no in sent_gonggos):
                 continue
 
-            # 소재지명 추출 (첫번째 줄)
-            lines = row_text.split("\n")
+            # 주소 추출
+            lines = text.split("\n")
             location = ""
             for ln in lines:
                 if "주차" in ln and len(ln) > 5:
@@ -131,29 +114,28 @@ with sync_playwright() as p:
                     break
 
             # 면적
-            area_match = re.search(r"\[.*?㎡\]", row_text)
+            area_match = re.search(r"\[.*?㎡\]", text)
             area = area_match.group(0) if area_match else "-"
 
             # 입찰기간
-            bid_dates = re.findall(r"\d{4}-\d{2}-\d{2}.*?\d{2}:\d{2}", row_text)
-            bid_period = " ~ ".join(bid_dates[:2]) if len(bid_dates) >= 2 else "-"
+            dates = re.findall(r"\d{4}-\d{2}-\d{2}.*?\d{2}:\d{2}", text)
+            bid_period = " ~ ".join(dates[:2]) if len(dates) >= 2 else "-"
 
-            # 최저입찰가
-            price_match = re.search(r"\d{1,3}(,\d{3})+", row_text)
+            # 가격
+            price_match = re.search(r"\d{1,3}(,\d{3})+", text)
             price = price_match.group(0) if price_match else "-"
 
             # 조회수
-            view_match = re.search(r"조회수\s*(\d+)", row_text)
+            view_match = re.search(r"조회수\s*(\d+)", text)
             views = view_match.group(1) if view_match else "-"
 
-            # =========================
-            # 상세이동 링크 생성
-            # =========================
-            detail_a = row.query_selector(
-                "a[href^='javascript:fn_selectDetail']"
-            )
-
+            # ======================
+            # 상세 링크 생성
+            # ======================
+            detail_a = row.query_selector("a[href^='javascript:fn_selectDetail']")
             detail_url = ""
+            search_link = SEARCH_URL + gonggo_no
+
             if detail_a:
                 href = detail_a.get_attribute("href")
                 nums = re.findall(r"'([^']+)'", href)
@@ -179,15 +161,14 @@ with sync_playwright() as p:
                 "bid": bid_period,
                 "price": price,
                 "views": views,
-                "url": detail_url
+                "detail_url": detail_url,
+                "search_url": search_link
             }
 
             all_results.append(item)
             new_results.append(item)
 
-        # =========================
-        # 다음 페이지 버튼 클릭
-        # =========================
+        # 다음 페이지
         paging = page.query_selector("div.paging")
         if not paging:
             break
@@ -219,7 +200,7 @@ if slack_webhook_url:
             {"type": "divider"},
             {"type": "section",
              "text": {"type": "mrkdwn",
-                      "text": f"📊 검색 결과: {len(all_results)}건\n신규: 0건\n누적 발송 기록: {len(sent_gonggos)}건"}}
+                      "text": f"📊 총 검색: {len(all_results)}건\n신규: 0건\n누적 발송 기록: {len(sent_gonggos)}건"}}
         ])
 
     else:
@@ -264,24 +245,30 @@ if slack_webhook_url:
                  ]},
             ]
 
-            if item["url"]:
+            # 두 가지 링크 모두 제공
+            if item["detail_url"]:
                 blocks.append({
                     "type": "section",
                     "text": {"type": "mrkdwn",
-                             "text": f"🔗 <{item['url']}|공고 상세보기>"}
-                })
+                             "text": f"🔗 <{item['detail_url']}|상세 바로가기 (로그인 필요)>"}}
+                )
+
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn",
+                         "text": f"🔎 <{item['search_url']}|공고번호 검색으로 보기>"}}
+            )
 
             blocks.append({"type": "divider"})
 
             send_slack(slack_webhook_url, blocks)
 
 # =========================
-# 신규 발송 기록 저장
+# 중복 저장
 # =========================
 if len(new_results) > 0:
     for item in new_results:
         sent_gonggos.append(item["gonggo"])
-
     sent_gonggos = list(set(sent_gonggos))
     save_sent(sent_gonggos)
 
