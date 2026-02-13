@@ -66,13 +66,21 @@ with sync_playwright() as p:
     page.goto("https://www.onbid.co.kr", timeout=60000)
     time.sleep(3)
 
-    print("로그인")
-    page.click("text=로그인")
-    time.sleep(2)
-    page.fill("input[type=text]", onbid_id)
-    page.fill("input[type=password]", onbid_pw)
-    page.click("button:has-text('로그인')")
-    time.sleep(4)
+    print("로그인 시도")
+
+# 로그인 버튼 클릭 (안전 방식)
+page.locator("text=로그인").first.click()
+page.wait_for_timeout(2000)
+
+# 아이디/비번 입력
+page.locator("input[type='text']").first.fill(onbid_id)
+page.locator("input[type='password']").first.fill(onbid_pw)
+
+# 로그인 제출
+page.locator("text=로그인").last.click()
+
+page.wait_for_timeout(5000)
+print("로그인 완료")
 
     page.goto(LIST_URL)
     time.sleep(4)
