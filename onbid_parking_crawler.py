@@ -127,8 +127,8 @@ try:
             gonggo_no = re.search(r"\d{4}-\d{4}-\d{6}", gonggo_no).group()
 
             # 중복이면 스킵
-            if gonggo_no in sent_gonggos:
-                continue
+            # if gonggo_no in sent_gonggos:
+            #    continue
 
             # 주소 추출
             lines = [l.strip() for l in full_text.split("\n") if l.strip()]
