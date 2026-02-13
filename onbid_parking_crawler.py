@@ -28,7 +28,7 @@ else:
     sent_gonggos = set()
 
 all_parking_data = []
-new_gonggos = set()   # ✅ 신규 공고만 따로 저장
+new_gonggos = set()
 total_found = 0
 
 # ===============================
@@ -49,7 +49,6 @@ def slack_error(msg):
         ]
     })
 
-
 # ===============================
 # Playwright 시작
 # ===============================
@@ -62,7 +61,9 @@ try:
     page.goto("https://www.onbid.co.kr", timeout=60000)
     time.sleep(3)
 
+    # ===============================
     # 로그인
+    # ===============================
     if onbid_id and onbid_pw:
         print("로그인 시도")
         page.click("text=로그인")
@@ -75,16 +76,21 @@ try:
         time.sleep(5)
         print("로그인 완료")
 
-    # 담보물 부동산 목록
+    # ===============================
+    # 담보물 부동산 목록 이동
+    # ===============================
     target_url = "https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateList.do"
     page.goto(target_url)
     time.sleep(5)
 
+    # ===============================
     # "주차장" 검색
+    # ===============================
     page.evaluate("""
         () => {
             const input = document.getElementById("searchCltrNm");
             if (input) input.value = "주차장";
+
             const btn = document.getElementById("searchBtn");
             if (btn) btn.click();
         }
@@ -95,7 +101,7 @@ try:
     page_num = 1
 
     # ===============================
-    # 페이지 반복
+    # 페이지 반복 수집
     # ===============================
     while True:
         print(f"{page_num}페이지 수집 중...")
@@ -110,7 +116,22 @@ try:
 
             total_found += 1
 
+            # ===============================
+            # ✅ 공고번호 추출 (가장 안정적)
+            # ===============================
+            gonggo_match = re.search(r"\d{4}-\d{4}-\d{6}", full_text)
+            if not gonggo_match:
+                continue
+
+            gonggo_no = gonggo_match.group()
+
+            # 중복이면 스킵
+            if gonggo_no in sent_gonggos:
+                continue
+
+            # ===============================
             # 상세이동 링크 찾기
+            # ===============================
             detail_a = row.query_selector("a[href*='fn_selectDetail']")
             if not detail_a:
                 continue
@@ -122,20 +143,12 @@ try:
             if len(nums) != 6:
                 continue
 
-            # 공고번호는 title 속성에서 추출
-            gonggo_no = detail_a.get_attribute("title")
-            if not gonggo_no:
-                continue
-
-            gonggo_no = re.search(r"\d{4}-\d{4}-\d{6}", gonggo_no).group()
-
-            # 중복이면 스킵
-            if gonggo_no in sent_gonggos:
-                continue
-
+            # ===============================
             # 주소 추출
+            # ===============================
             lines = [l.strip() for l in full_text.split("\n") if l.strip()]
             address = ""
+
             for i, line in enumerate(lines):
                 if gonggo_no in line and i + 1 < len(lines):
                     address = lines[i + 1]
@@ -143,27 +156,39 @@ try:
 
             address = address.replace("새 창 열기", "").replace("지도보기", "").strip()
 
+            # ===============================
             # 면적
+            # ===============================
             area_match = re.search(r"\[.*?㎡\]", full_text)
             area = area_match.group() if area_match else "-"
 
+            # ===============================
             # 입찰기간
+            # ===============================
             period_match = re.findall(r"\d{4}-\d{2}-\d{2}.*?\d{2}:\d{2}", full_text)
             period = " ~ ".join(period_match[:2]) if period_match else "-"
 
+            # ===============================
             # 최저입찰가
+            # ===============================
             price_match = re.search(r"\d{1,3}(,\d{3})+", full_text)
             price = price_match.group() if price_match else "-"
 
+            # ===============================
             # 조회수
+            # ===============================
             view_match = re.search(r"조회수\s*(\d+)", full_text)
             view = view_match.group(1) if view_match else "-"
 
+            # ===============================
             # 물건상태
-            status_match = re.search(r"(인터넷입찰진행중|일반경쟁|제한경쟁|임대\\(대부\\))", full_text)
+            # ===============================
+            status_match = re.search(r"(인터넷입찰진행중|일반경쟁|제한경쟁|임대\(대부\))", full_text)
             status = status_match.group() if status_match else "-"
 
-            # ✅ 진짜 상세페이지 URL 생성 (정확한 View URL)
+            # ===============================
+            # ✅ 상세 URL 생성 (View 페이지)
+            # ===============================
             detail_url = (
                 "https://www.onbid.co.kr/op/cta/cltrdtl/"
                 "collateralDetailRealEstateView.do?"
@@ -175,6 +200,7 @@ try:
                 f"&seq={nums[5]}"
             )
 
+            # 신규 데이터 저장
             all_parking_data.append({
                 "gonggo": gonggo_no,
                 "address": address,
@@ -186,10 +212,11 @@ try:
                 "link": detail_url
             })
 
-            # ✅ 신규 공고만 따로 기록
             new_gonggos.add(gonggo_no)
 
-        # 다음 페이지 버튼
+        # ===============================
+        # 다음 페이지 이동
+        # ===============================
         next_btn = page.locator(f"a[onclick*='fn_paging({page_num+1})']")
         if next_btn.count() == 0:
             break
@@ -199,11 +226,10 @@ try:
         page_num += 1
 
     # ===============================
-    # Slack 결과 발송
+    # Slack 발송
     # ===============================
     신규건수 = len(all_parking_data)
 
-    # 1) 신규 있으면 카드 발송
     if 신규건수 > 0:
         slack_send({
             "blocks": [
@@ -249,7 +275,6 @@ try:
                 ]
             })
 
-    # 2) 신규 없으면 안내
     else:
         slack_send({
             "blocks": [
@@ -263,7 +288,9 @@ try:
             ]
         })
 
-    # 3) 항상 마지막 요약
+    # ===============================
+    # 요약 리포트
+    # ===============================
     slack_send({
         "blocks": [
             {"type": "divider"},
@@ -282,7 +309,7 @@ try:
     })
 
     # ===============================
-    # 발송 성공 후에만 기록 저장
+    # 신규 발송 성공 후 기록 저장
     # ===============================
     sent_gonggos.update(new_gonggos)
 
