@@ -3,7 +3,6 @@ import time
 import json
 import re
 import requests
-from urllib.parse import quote
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta, timezone
 
@@ -35,9 +34,9 @@ total_found = 0
 # ===============================
 # Slack 함수
 # ===============================
-def slack_send(blocks):
+def slack_send(payload):
     if slack_webhook_url:
-        requests.post(slack_webhook_url, json=blocks)
+        requests.post(slack_webhook_url, json=payload)
         time.sleep(1)
 
 def slack_error(msg):
@@ -78,7 +77,7 @@ try:
         print("로그인 완료")
 
     # ===============================
-    # 담보물 부동산 목록 이동
+    # 목록 이동
     # ===============================
     target_url = "https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstateList.do"
     page.goto(target_url)
@@ -91,7 +90,6 @@ try:
         () => {
             const input = document.getElementById("searchCltrNm");
             if (input) input.value = "주차장";
-
             const btn = document.getElementById("searchBtn");
             if (btn) btn.click();
         }
@@ -102,7 +100,7 @@ try:
     page_num = 1
 
     # ===============================
-    # 페이지 반복 수집
+    # 페이지 반복
     # ===============================
     while True:
         print(f"{page_num}페이지 수집 중...")
@@ -117,25 +115,19 @@ try:
 
             total_found += 1
 
-            # ===============================
-            # ✅ 공고번호 추출 (가장 안정적)
-            # ===============================
+            # 공고번호
             gonggo_match = re.search(r"\d{4}-\d{4}-\d{6}", full_text)
             if not gonggo_match:
                 continue
 
             gonggo_no = gonggo_match.group()
 
-            # 중복이면 스킵
             if gonggo_no in sent_gonggos:
                 continue
 
-            # ===============================
-            # 주소 추출
-            # ===============================
+            # 주소
             lines = [l.strip() for l in full_text.split("\n") if l.strip()]
             address = ""
-
             for i, line in enumerate(lines):
                 if gonggo_no in line and i + 1 < len(lines):
                     address = lines[i + 1]
@@ -143,48 +135,56 @@ try:
 
             address = address.replace("새 창 열기", "").replace("지도보기", "").strip()
 
-            # ===============================
             # 면적
-            # ===============================
             area_match = re.search(r"\[.*?㎡\]", full_text)
             area = area_match.group() if area_match else "-"
 
-            # ===============================
             # 입찰기간
-            # ===============================
             period_match = re.findall(r"\d{4}-\d{2}-\d{2}.*?\d{2}:\d{2}", full_text)
             period = " ~ ".join(period_match[:2]) if period_match else "-"
 
-            # ===============================
-            # 최저입찰가
-            # ===============================
+            # 가격
             price_match = re.search(r"\d{1,3}(,\d{3})+", full_text)
             price = price_match.group() if price_match else "-"
 
-            # ===============================
             # 조회수
-            # ===============================
             view_match = re.search(r"조회수\s*(\d+)", full_text)
             view = view_match.group(1) if view_match else "-"
 
-            # ===============================
-            # 물건상태
-            # ===============================
+            # 상태
             status_match = re.search(r"(인터넷입찰진행중|일반경쟁|제한경쟁|임대\(대부\))", full_text)
             status = status_match.group() if status_match else "-"
 
             # ===============================
-            # ✅ Slack에서 무조건 열리게 하는 링크 (2-step)
+            # 상세 링크 생성 (핵심 부분)
             # ===============================
-            link_main = "https://www.onbid.co.kr"
+            detail_link = "-"
 
-            link_search = (
-                "https://www.onbid.co.kr/op/cta/cltrdtl/"
-                "collateralDetailRealEstateList.do?search="
-                + quote(gonggo_no.strip())
-            )
+            anchor = row.query_selector("a[href*='fn_selectDetail']")
+            if anchor:
+                href = anchor.get_attribute("href")
 
-            # 신규 데이터 저장
+                if href:
+                    match = re.search(
+                        r"fn_selectDetail\('([^']+)','([^']+)','([^']+)','([^']+)','([^']+)','([^']+)'\)",
+                        href
+                    )
+
+                    if match:
+                        cltrNo, plnmNo, pbctNo, scrnGrpCd, pbctCd, cltrHstrNo = match.groups()
+
+                        detail_link = (
+                            "https://www.onbid.co.kr/op/cta/cltrdtl/collateralDetailRealEstate.do"
+                            f"?cltrNo={cltrNo}"
+                            f"&plnmNo={plnmNo}"
+                            f"&pbctNo={pbctNo}"
+                            f"&scrnGrpCd={scrnGrpCd}"
+                            f"&pbctCd={pbctCd}"
+                            f"&cltrHstrNo={cltrHstrNo}"
+                        )
+
+            print("상세 URL:", detail_link)
+
             all_parking_data.append({
                 "gonggo": gonggo_no,
                 "address": address,
@@ -193,15 +193,12 @@ try:
                 "price": price,
                 "status": status,
                 "view": view,
-                "link_main": link_main,
-                "link_search": link_search
+                "detail_link": detail_link
             })
 
             new_gonggos.add(gonggo_no)
 
-        # ===============================
-        # 다음 페이지 이동
-        # ===============================
+        # 다음 페이지
         next_btn = page.locator(f"a[onclick*='fn_paging({page_num+1})']")
         if next_btn.count() == 0:
             break
@@ -253,53 +250,13 @@ try:
                          {"type": "mrkdwn",
                           "text": f"*👁 조회수*\n{item['view']}"}
                      ]},
-                    # ✅ 링크 2개 제공
                     {"type": "section",
                      "text": {"type": "mrkdwn",
-                              "text":
-                                  f"🔗 <{item['link_main']}|온비드 홈 먼저 클릭>\n"
-                                  f"➡️ <{item['link_search']}|공고 검색 바로가기>"
-                              }},
+                              "text": f"🔗 <{item['detail_link']}|상세페이지 바로가기>"}},
                     {"type": "divider"}
                 ]
             })
 
-    else:
-        slack_send({
-            "blocks": [
-                {"type": "header",
-                 "text": {"type": "plain_text",
-                          "text": "📭 오늘 신규 주차장 공고 없음",
-                          "emoji": True}},
-                {"type": "section",
-                 "text": {"type": "mrkdwn",
-                          "text": f"📅 {now.strftime('%Y-%m-%d %H:%M')} (KST)\n오늘 신규 공고가 없습니다."}}
-            ]
-        })
-
-    # ===============================
-    # 요약 리포트
-    # ===============================
-    slack_send({
-        "blocks": [
-            {"type": "divider"},
-            {"type": "section",
-             "text": {"type": "mrkdwn",
-                      "text": f"""
-📊 *온비드 크롤링 요약*
-
-- 총 검색 건수: *{total_found}건*
-- 신규 공고: *{신규건수}건*
-- 누적 발송 기록: *{len(sent_gonggos) + len(new_gonggos)}건*
-
-⏰ 실행시간: {now.strftime('%Y-%m-%d %H:%M')} (KST)
-""" }}
-        ]
-    })
-
-    # ===============================
-    # 신규 발송 성공 후 기록 저장
-    # ===============================
     sent_gonggos.update(new_gonggos)
 
     with open(SAVED_FILE, "w", encoding="utf-8") as f:
