@@ -174,15 +174,21 @@ try:
             status = status_match.group() if status_match else "-"
 
             # ===============================
-            # ✅ Slack에서 무조건 열리게 하는 링크 (2-step)
+            # ✅ 상세 페이지로 바로가는 1-click 링크 구성
             # ===============================
             link_main = "https://www.onbid.co.kr"
 
-            link_search = (
-                "https://www.onbid.co.kr/op/cta/cltrdtl/"
-                "collateralDetailRealEstateList.do?search="
-                + quote(gonggo_no.strip())
-            )
+            html_content = row.inner_html()
+            detail_match = re.search(r"fn_selectDetail\('([^']+)','([^']+)','([^']+)','([^']+)','([^']+)','([^']+)'", html_content)
+            
+            if detail_match:
+                p1, p2, p3, p4, p5, p6 = detail_match.groups()
+                link_search = (
+                    f"https://www.onbid.co.kr/op/cta/cltrdtl/collateralRealEstateDetail.do?"
+                    f"cltrHstrNo={p1}&cltrNo={p2}&plnmNo={p3}&pbctNo={p4}&scrnGrpCd={p5}&pbctCdtnNo={p6}"
+                )
+            else:
+                link_search = link_main
 
             # 신규 데이터 저장
             all_parking_data.append({
