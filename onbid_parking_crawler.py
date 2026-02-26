@@ -110,10 +110,10 @@ try:
         for row in rows:
             full_text = row.inner_text()
 
-            if "주차" not in full_text:
-                continue
+            #if "주차" not in full_text:
+            #    continue
 
-            total_found += 1
+            #total_found += 1
 
             # 공고번호
             gonggo_match = re.search(r"\d{4}-\d{4}-\d{6}", full_text)
