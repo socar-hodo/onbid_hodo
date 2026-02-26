@@ -21,15 +21,15 @@ SAVED_FILE = "sent_gonggo.json"
 # ===============================
 # 기존 발송 공고 불러오기
 # ===============================
-if os.path.exists(SAVED_FILE):
-    with open(SAVED_FILE, "r", encoding="utf-8") as f:
-        sent_gonggos = set(json.load(f))
-else:
-    sent_gonggos = set()
-
-all_parking_data = []
-new_gonggos = set()
-total_found = 0
+#if os.path.exists(SAVED_FILE):
+#    with open(SAVED_FILE, "r", encoding="utf-8") as f:
+#        sent_gonggos = set(json.load(f))
+#else:
+#    sent_gonggos = set()
+#
+#all_parking_data = []
+#new_gonggos = set()
+#total_found = 0
 
 # ===============================
 # Slack 함수
