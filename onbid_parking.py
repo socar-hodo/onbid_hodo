@@ -187,6 +187,30 @@ def _num_fmt(v) -> str:
     return f"{n:,}원" if n else "-"
 
 
+def _parse_dtm(s: str | None) -> datetime | None:
+    """'2026-04-27 10:00' 또는 '2026-04-27 10:00:00' 형식을 KST-aware datetime으로."""
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=KST)
+        except ValueError:
+            continue
+    return None
+
+
+def is_closed(item: dict) -> bool:
+    """입찰 마감된 공고인지 판정. 가장 신뢰 가능한 기준은 입찰 마감일시(pbctDdlnDt)."""
+    ddln = _parse_dtm(item.get("pbctDdlnDt"))
+    if ddln is not None and ddln <= NOW:
+        return True
+    # 백업: 상태 코드 기준. 0001/0002 = 준비/진행, 그 외(0003~마감/낙찰/유찰/취소 등)는 스킵
+    stat_cd = (item.get("pbancPbctCltrStatCd") or "").strip()
+    if stat_cd and stat_cd not in {"0001", "0002"}:
+        return True
+    return False
+
+
 def normalize(item: dict) -> dict:
     gonggo = item.get("scrnIndctCltrMngNo") or ""
     land = item.get("landSqms") or 0
@@ -296,9 +320,14 @@ def main() -> None:
 
     log.info(f"API 응답 총 {total_found}건 (수집 {len(raw_items)}건)")
 
+    # 입찰 마감된 공고는 알림 대상에서 제외
+    active_items = [r for r in raw_items if not is_closed(r)]
+    closed_count = len(raw_items) - len(active_items)
+    log.info(f"입찰마감 제외: {closed_count}건, 진행중: {len(active_items)}건")
+
     new_items: list[dict] = []
     new_gonggos: set[str] = set()
-    for raw in raw_items:
+    for raw in active_items:
         it = normalize(raw)
         if not it["gonggo"] or it["gonggo"] in sent:
             continue
