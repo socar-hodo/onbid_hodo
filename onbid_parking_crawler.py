@@ -59,23 +59,40 @@ page = browser.new_page()
 
 try:
     print("===== 온비드 접속 =====")
-    page.goto("https://www.onbid.co.kr", timeout=60000)
-    time.sleep(3)
 
     # ===============================
-    # 로그인
+    # 로그인 (홈페이지 UI 개편 대응: 로그인 페이지로 직접 이동)
+    # 기존에는 page.click("text=로그인")로 홈페이지 로그인 링크를 눌렀으나,
+    # 개편 이후 해당 텍스트가 숨겨진 메뉴/드롭다운에만 남아 클릭 불가능해짐.
+    # 로그인 URL로 직접 이동하면 UI 변경에 영향받지 않아 안정적.
     # ===============================
     if onbid_id and onbid_pw:
-        print("로그인 시도")
-        page.click("text=로그인")
-        time.sleep(2)
+        print("로그인 페이지로 직접 이동")
+        page.goto(
+            "https://www.onbid.co.kr/op/meminf/lgnmng/prtllgn/PrtlLgnController/prtlLgn.do",
+            timeout=60000,
+        )
+        page.wait_for_load_state("networkidle")
 
-        page.fill('input[type="text"]', onbid_id)
-        page.fill('input[type="password"]', onbid_pw)
+        # 아이디/비밀번호 입력 — 사이트 변경에 대비해 여러 셀렉터 fallback
+        id_input = page.locator(
+            'input[name="userId"], input[id="userId"], input[name="mberId"], input[type="text"]:visible'
+        ).first
+        pw_input = page.locator(
+            'input[name="password"], input[id="password"], input[type="password"]:visible'
+        ).first
+        id_input.fill(onbid_id)
+        pw_input.fill(onbid_pw)
 
-        page.click("text=로그인")
-        time.sleep(5)
+        # 로그인 제출 — 보이는(visible) 요소만 매칭해 숨은 중복 요소 문제 회피
+        page.locator(
+            'button:has-text("로그인"):visible, a:has-text("로그인"):visible, input[type="submit"]:visible'
+        ).first.click()
+        page.wait_for_load_state("networkidle", timeout=30000)
         print("로그인 완료")
+    else:
+        page.goto("https://www.onbid.co.kr", timeout=60000)
+        time.sleep(2)
 
     # ===============================
     # 담보물 부동산 목록 이동
