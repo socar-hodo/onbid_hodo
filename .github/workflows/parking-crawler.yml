@@ -22,16 +22,20 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install Playwright
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install playwright requests
+          playwright install chromium
+          playwright install-deps
 
       - name: Run parking crawler
         env:
+          ONBID_ID: ${{ secrets.ONBID_ID }}
+          ONBID_PW: ${{ secrets.ONBID_PW }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          python onbid_parking.py
+          python onbid_parking_crawler.py
 
       - name: Upload logs
         if: always()

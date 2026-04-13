@@ -1,0 +1,47 @@
+name: 온비드 주차장 크롤링
+
+on:
+  schedule:
+    # 한국시간 오전 11시 = UTC 오전 2시 (월~금만 실행)
+    - cron: '0 2 * * 1-5'
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    
+    # Node.js 24 사용 설정 (미래 대비)
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    
+    steps:
+    - name: 체크아웃
+      uses: actions/checkout@v4
+    
+    - name: Python 설정
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: 의존성 설치
+      run: |
+        pip install playwright requests
+        playwright install chromium
+        playwright install-deps
+    
+    - name: 크롤링 실행
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        ONBID_ID: ${{ secrets.ONBID_ID }}
+        ONBID_PW: ${{ secrets.ONBID_PW }}
+      run: python onbid_parking.py
+    
+    - name: 스크린샷 및 데이터 업로드
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: onbid-crawl-results
+        path: |
+          *.png
+          sent_gonggo.json
+        if-no-files-found: warn
