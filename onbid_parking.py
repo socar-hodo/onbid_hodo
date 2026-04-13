@@ -47,6 +47,8 @@ SEARCH_DEEP_LINK_FMT = (
     f"{BASE_URL}/op/cltrpbancinf/toppagemng/unfsrch/"
     f"UnfSrchController/mvmnUnfSrchClg.do?swd={{gonggo}}"
 )
+# 온비드 홈 — 보조 링크
+MAIN_LINK = BASE_URL
 
 # 부동산 물건유형 전체
 REAL_ESTATE_PRPT_TYPES = [
@@ -219,39 +221,44 @@ def normalize(item: dict) -> dict:
 
 
 # ===============================
-# Slack 메시지 빌더
+# Slack 메시지 빌더 (기존 포맷 유지: 주소 헤더, 홈+검색 2개 링크)
 # ===============================
 def send_item(idx: int, it: dict) -> None:
+    # 헤더용 주소: 물건명이 더 구체적이면 그걸로, 아니면 광역주소
+    header_addr = it["name"] if it["name"] != "-" else it["address"]
     slack_send({
         "blocks": [
             {"type": "header",
              "text": {"type": "plain_text",
-                      "text": f"🅿️ {idx}. {it['name'][:70]}", "emoji": True}},
+                      "text": f"🅿️ {idx}. {header_addr[:70]}", "emoji": True}},
             {"type": "section",
-             "text": {"type": "mrkdwn", "text": f"*🏷 유형*\n{it['tag']}"}},
+             "text": {"type": "mrkdwn",
+                      "text": f"*🔢 공고번호*\n{it['gonggo']}"}},
+            {"type": "section",
+             "text": {"type": "mrkdwn",
+                      "text": f"*📏 면적*\n{it['area']}"}},
             {"type": "section",
              "fields": [
-                 {"type": "mrkdwn", "text": f"*🔢 공고번호*\n{it['gonggo']}"},
-                 {"type": "mrkdwn", "text": f"*📍 주소*\n{it['address']}"},
-             ]},
-            {"type": "section",
-             "fields": [
-                 {"type": "mrkdwn", "text": f"*📏 면적*\n{it['area']}"},
+                 {"type": "mrkdwn", "text": f"*📅 입찰기간*\n{it['period']}"},
                  {"type": "mrkdwn", "text": f"*💰 최저입찰가*\n{it['price']}"},
              ]},
             {"type": "section",
              "fields": [
-                 {"type": "mrkdwn", "text": f"*📅 입찰기간*\n{it['period']}"},
+                 {"type": "mrkdwn", "text": f"*🏷 물건상태*\n{it['status']}"},
                  {"type": "mrkdwn", "text": f"*👁 조회수*\n{it['view']}"},
              ]},
             {"type": "section",
              "fields": [
-                 {"type": "mrkdwn", "text": f"*🏷 상태*\n{it['status']}"},
                  {"type": "mrkdwn", "text": f"*🏢 처분기관*\n{it['org']}"},
+                 {"type": "mrkdwn", "text": f"*🗂 유형*\n{it['tag']}"},
              ]},
+            # ✅ 링크 2개 제공 (기존 포맷 유지)
             {"type": "section",
              "text": {"type": "mrkdwn",
-                      "text": f"<{it['link']}|📎 온비드에서 공고번호로 바로 검색>"}},
+                      "text": (
+                          f"🔗 <{MAIN_LINK}|온비드 홈 먼저 클릭>\n"
+                          f"➡️ <{it['link']}|공고 검색 바로가기>"
+                      )}},
             {"type": "divider"},
         ]
     })
